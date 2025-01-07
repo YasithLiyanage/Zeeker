@@ -1,17 +1,27 @@
-// Define the GPIO pins connected to the IR sensors
+// Pin Definitions
+#define PWM_MOTOR1 4
+#define PWM_MOTOR2 5
+#define MOTOR1_IN1 23
+#define MOTOR1_IN2 22
+#define MOTOR2_IN3 21
+#define MOTOR2_IN4 15
+
 #define IR_SENSOR1_PIN 32
 #define IR_SENSOR2_PIN 33
 #define IR_SENSOR3_PIN 25
 
 
-void setup() {
-  // Initialize Serial Monitor
-  Serial.begin(115200);
 
-  // Configure GPIO pins as analog inputs
-  // For ESP32, analog pins are defined by ADC channels internally.
-  // Pins like 5, 17, 16, and 4 are valid for ADC on the ESP32.
-  Serial.println("IR Sensor Array Initialized");
+void setup() {
+    // Set up motor control pins as outputs
+    pinMode(MOTOR1_IN1, OUTPUT);
+    pinMode(MOTOR1_IN2, OUTPUT);
+    pinMode(MOTOR2_IN3, OUTPUT);
+    pinMode(MOTOR2_IN4, OUTPUT);
+    pinMode(PWM_MOTOR1, OUTPUT);
+    pinMode(PWM_MOTOR2, OUTPUT);
+
+    Serial.begin(115200);
 }
 
 void loop() {
