@@ -67,6 +67,8 @@ void loop() {
   Serial.print(sensor2Value);
   Serial.print("  | Sensor 3: ");
   Serial.print(sensor3Value);
+  Serial.print("  |  ");
+
  
 
      noInterrupts();  // Disable interrupts while reading shared variables
