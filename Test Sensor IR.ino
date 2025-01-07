@@ -27,10 +27,10 @@ void loop() {
   Serial.print("  | Sensor 2: ");
   Serial.print(sensor2Value);
   Serial.print("  | Sensor 3: ");
-  Serial.print(sensor3Value);
+  Serial.println(sensor3Value);
  
 
 
   // Add a delay for readability
   delay(200);
-}
+}1
