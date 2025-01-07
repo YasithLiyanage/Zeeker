@@ -11,6 +11,22 @@
 #define IR_SENSOR3_PIN 25
 
 
+#define ENCA1 16  // Encoder A channel A pin
+#define ENCA2 17  // Encoder A channel B pin
+#define ENCB1 18 // Encoder B channel A pin
+#define ENCB2 19 // Encoder B channel B pin
+
+volatile int posA = 0;  // Position for encoder A
+volatile int posB = 0;  // Position for encoder B
+volatile int lastEncodedA = 0;  // Used for storing the last encoded value of encoder A
+volatile int lastEncodedB = 0;  // Used for storing the last encoded value of encoder B
+
+// Forward declaration for the interrupt functions
+void IRAM_ATTR updateEncoderA();
+void IRAM_ATTR updateEncoderB();
+
+
+
 
 void setup() {
     // Set up motor control pins as outputs
@@ -20,6 +36,19 @@ void setup() {
     pinMode(MOTOR2_IN4, OUTPUT);
     pinMode(PWM_MOTOR1, OUTPUT);
     pinMode(PWM_MOTOR2, OUTPUT);
+
+    pinMode(ENCA1, INPUT);
+    pinMode(ENCA2, INPUT);
+    pinMode(ENCB1, INPUT);
+    pinMode(ENCB2, INPUT);
+
+    // Attach interrupt for encoder A channels
+    attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);  // Track both RISING and FALLING
+    attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);  // Track both RISING and FALLING
+
+    // Attach interrupt for encoder B channels
+    attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);  // Track both RISING and FALLING
+    attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);  // Track both RISING and FALLING
 
     Serial.begin(115200);
 }
@@ -37,10 +66,61 @@ void loop() {
   Serial.print("  | Sensor 2: ");
   Serial.print(sensor2Value);
   Serial.print("  | Sensor 3: ");
-  Serial.println(sensor3Value);
+  Serial.print(sensor3Value);
  
+
+     noInterrupts();  // Disable interrupts while reading shared variables
+    int currentPosA = posA;
+    int currentPosB = posB;
+    interrupts();    // Re-enable interrupts after reading
+
+    // Print the current position of the motor for both encoders
+    Serial.print("Motor A Position: ");
+    Serial.print(currentPosA);
+    Serial.print("   Motor B Position: ");
+    Serial.println(currentPosB);
 
 
   // Add a delay for readability
   delay(200);
+}
+
+// Define the interrupt service routine for encoder A
+void IRAM_ATTR updateEncoderA(){
+    // Read the current state of both channels
+    int MSB_A = digitalRead(ENCA1);  // Most Significant Bit for encoder A
+    int LSB_A = digitalRead(ENCA2);  // Least Significant Bit for encoder A
+
+    int encodedA = (MSB_A << 1) | LSB_A;  // Combine the two bits into a single integer
+    int sumA = (lastEncodedA << 2) | encodedA;  // Shift and combine with the last encoded value
+
+    // Determine the direction based on the state transitions for encoder A
+    if (sumA == 0b1101 || sumA == 0b0100 || sumA == 0b0010 || sumA == 0b1011){
+        posA++;
+    }
+    else if (sumA == 0b1110 || sumA == 0b0111 || sumA == 0b0001 || sumA == 0b1000){
+        posA--;
+    }
+
+    lastEncodedA = encodedA;  // Store the current encoded value for the next iteration
+}
+
+// Define the interrupt service routine for encoder B
+void IRAM_ATTR updateEncoderB(){
+    // Read the current state of both channels
+    int MSB_B = digitalRead(ENCB1);  // Most Significant Bit for encoder B
+    int LSB_B = digitalRead(ENCB2);  // Least Significant Bit for encoder B
+
+    int encodedB = (MSB_B << 1) | LSB_B;  // Combine the two bits into a single integer
+    int sumB = (lastEncodedB << 2) | encodedB;  // Shift and combine with the last encoded value
+
+    // Determine the direction based on the state transitions for encoder B
+    if (sumB == 0b1101 || sumB == 0b0100 || sumB == 0b0010 || sumB == 0b1011){
+        posB++;
+    }
+    else if (sumB == 0b1110 || sumB == 0b0111 || sumB == 0b0001 || sumB == 0b1000){
+        posB--;
+    }
+
+    lastEncodedB = encodedB;  // Store the current encoded value for the next iteration
 }
