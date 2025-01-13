@@ -97,11 +97,10 @@ void loop() {
 // Number of encoder steps needed for a 90-degree turn (tune based on your robot)
 #define STEPS_FOR_90_DEGREE_TURN 1000
 
-// Turn right based on encoder steps
 void turnRight(int steps) {
-    // Reset position tracking
-    volatile int targetPosA = posA + steps;  // Target position for encoder A
-    volatile int targetPosB = posB - steps;  // Target position for encoder B
+    // Set target positions
+    int targetPosA = posA + steps;
+    int targetPosB = posB - steps;
 
     // Rotate right by running motor 1 forward and motor 2 backward
     digitalWrite(MOTOR1_IN1, HIGH);  // Motor 1 forward
@@ -109,20 +108,16 @@ void turnRight(int steps) {
     digitalWrite(MOTOR2_IN3, LOW);   // Motor 2 backward
     digitalWrite(MOTOR2_IN4, HIGH);
 
-    // Keep checking encoder A position until targetPosA is reached
-    while (posA < targetPosA) {
-        delay(10);  // Optional small delay
+    // Continuously check if the target position is reached
+    if (posA >= targetPosA) {
+        stopMotors();  // Stop motors when target position is reached
     }
-
-    // Stop motors after completing the turn
-    stopMotors();
 }
 
-// Turn left based on encoder steps
 void turnLeft(int steps) {
-    // Reset position tracking
-    volatile int targetPosA = posA - steps;  // Target position for encoder A
-    volatile int targetPosB = posB + steps;  // Target position for encoder B
+    // Set target positions
+    int targetPosA = posA - steps;
+    int targetPosB = posB + steps;
 
     // Rotate left by running motor 1 backward and motor 2 forward
     digitalWrite(MOTOR1_IN1, LOW);  // Motor 1 backward
@@ -130,13 +125,10 @@ void turnLeft(int steps) {
     digitalWrite(MOTOR2_IN3, HIGH);  // Motor 2 forward
     digitalWrite(MOTOR2_IN4, LOW);
 
-    // Keep checking encoder A position until targetPosA is reached
-    while (posA > targetPosA) {
-        delay(10);  // Optional small delay
+    // Continuously check if the target position is reached
+    if (posA <= targetPosA) {
+        stopMotors();  // Stop motors when target position is reached
     }
-
-    // Stop motors after completing the turn
-    stopMotors();
 }
 
 
