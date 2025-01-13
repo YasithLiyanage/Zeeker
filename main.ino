@@ -84,8 +84,8 @@ void loop() {
     Serial.print("   Motor B Position: ");
     Serial.println(currentPosB);
 
-    turnLeft();
-    turnRight();
+    turnLeft(1000);
+    turnRight(1000);
 
 }
 
@@ -109,10 +109,9 @@ void turnRight(int steps) {
     digitalWrite(MOTOR2_IN3, LOW);   // Motor 2 backward
     digitalWrite(MOTOR2_IN4, HIGH);
 
-    // Keep checking encoder positions until the target position is reached
-    while (posA < targetPosA && posB > targetPosB) {
-        // Optionally add a small delay or yield to ensure responsiveness
-        delay(10);
+    // Keep checking encoder A position until targetPosA is reached
+    while (posA < targetPosA) {
+        delay(10);  // Optional small delay
     }
 
     // Stop motors after completing the turn
@@ -131,15 +130,15 @@ void turnLeft(int steps) {
     digitalWrite(MOTOR2_IN3, HIGH);  // Motor 2 forward
     digitalWrite(MOTOR2_IN4, LOW);
 
-    // Keep checking encoder positions until the target position is reached
-    while (posA > targetPosA && posB < targetPosB) {
-        // Optionally add a small delay or yield to ensure responsiveness
-        delay(10);
+    // Keep checking encoder A position until targetPosA is reached
+    while (posA > targetPosA) {
+        delay(10);  // Optional small delay
     }
 
     // Stop motors after completing the turn
     stopMotors();
 }
+
 
 // Stop motors
 void stopMotors() {
