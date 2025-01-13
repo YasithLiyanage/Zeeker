@@ -84,37 +84,8 @@ void loop() {
     Serial.print("   Motor B Position: ");
     Serial.println(currentPosB);
 
-
-
-     // Both motors forward at full speed
-    Serial.println("Motors Forward at Full Speed");
-    digitalWrite(MOTOR1_IN1, HIGH);
-    digitalWrite(MOTOR1_IN2, LOW);
-    digitalWrite(MOTOR2_IN3, HIGH);
-    digitalWrite(MOTOR2_IN4, LOW);
-    analogWrite(PWM_MOTOR1, 155); // Full speed
-    analogWrite(PWM_MOTOR2, 155); // Full speed
-    delay(1000); // Run for 2 seconds
-
-    // Both motors reverse at full speed
-    Serial.println("Motors Reverse at Full Speed");
-    digitalWrite(MOTOR1_IN1, LOW);
-    digitalWrite(MOTOR1_IN2, HIGH);
-    digitalWrite(MOTOR2_IN3, LOW);
-    digitalWrite(MOTOR2_IN4, HIGH);
-    analogWrite(PWM_MOTOR1, 155); // Full speed
-    analogWrite(PWM_MOTOR2, 155); // Full speed
-    delay(1000); // Run for 2 seconds
-
-    // Stop motors
-    Serial.println("Stopping Motors");
-    analogWrite(PWM_MOTOR1, 0);
-    analogWrite(PWM_MOTOR2, 0);
-    digitalWrite(MOTOR1_IN1, LOW);
-    digitalWrite(MOTOR1_IN2, LOW);
-    digitalWrite(MOTOR2_IN3, LOW);
-    digitalWrite(MOTOR2_IN4, LOW);
-    delay(2000); // Pause before repeating
+    turnLeft();
+    turnRight();
 
 }
 
@@ -123,6 +94,62 @@ void loop() {
 
 
 
+// Number of encoder steps needed for a 90-degree turn (tune based on your robot)
+#define STEPS_FOR_90_DEGREE_TURN 1000
+
+// Turn right based on encoder steps
+void turnRight(int steps) {
+    // Reset position tracking
+    volatile int targetPosA = posA + steps;  // Target position for encoder A
+    volatile int targetPosB = posB - steps;  // Target position for encoder B
+
+    // Rotate right by running motor 1 forward and motor 2 backward
+    digitalWrite(MOTOR1_IN1, HIGH);  // Motor 1 forward
+    digitalWrite(MOTOR1_IN2, LOW);   
+    digitalWrite(MOTOR2_IN3, LOW);   // Motor 2 backward
+    digitalWrite(MOTOR2_IN4, HIGH);
+
+    // Keep checking encoder positions until the target position is reached
+    while (posA < targetPosA && posB > targetPosB) {
+        // Optionally add a small delay or yield to ensure responsiveness
+        delay(10);
+    }
+
+    // Stop motors after completing the turn
+    stopMotors();
+}
+
+// Turn left based on encoder steps
+void turnLeft(int steps) {
+    // Reset position tracking
+    volatile int targetPosA = posA - steps;  // Target position for encoder A
+    volatile int targetPosB = posB + steps;  // Target position for encoder B
+
+    // Rotate left by running motor 1 backward and motor 2 forward
+    digitalWrite(MOTOR1_IN1, LOW);  // Motor 1 backward
+    digitalWrite(MOTOR1_IN2, HIGH);   
+    digitalWrite(MOTOR2_IN3, HIGH);  // Motor 2 forward
+    digitalWrite(MOTOR2_IN4, LOW);
+
+    // Keep checking encoder positions until the target position is reached
+    while (posA > targetPosA && posB < targetPosB) {
+        // Optionally add a small delay or yield to ensure responsiveness
+        delay(10);
+    }
+
+    // Stop motors after completing the turn
+    stopMotors();
+}
+
+// Stop motors
+void stopMotors() {
+    analogWrite(PWM_MOTOR1, 0);
+    analogWrite(PWM_MOTOR2, 0);
+    digitalWrite(MOTOR1_IN1, LOW);
+    digitalWrite(MOTOR1_IN2, LOW);
+    digitalWrite(MOTOR2_IN3, LOW);
+    digitalWrite(MOTOR2_IN4, LOW);
+}
 
 
 
