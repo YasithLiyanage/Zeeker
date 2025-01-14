@@ -135,6 +135,14 @@ void turnLeft(int steps) {
 
 
 
+// Stop motors
+void stopMotors() {
+    setMotorSpeed(1,0);
+    setMotorSpeed(2,0);
+}
+
+
+
 
 
 
