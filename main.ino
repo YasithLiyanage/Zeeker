@@ -6,10 +6,6 @@
 #define MOTOR2_IN3 21
 #define MOTOR2_IN4 15
 
-#define IR_SENSOR1_PIN 32
-#define IR_SENSOR2_PIN 33
-#define IR_SENSOR3_PIN 25
-
 #define ENCA1 16  // Encoder A channel A pin
 #define ENCA2 17  // Encoder A channel B pin
 #define ENCB1 18  // Encoder B channel A pin
@@ -24,26 +20,21 @@ volatile int lastEncodedB = 0;  // Last encoded value for encoder B
 // State Machine Variables
 enum RobotState {
     IDLE,
-    MOVE_FORWARD,
     TURN_LEFT,
-    TURN_RIGHT,
-    CHECK_SENSORS
+    TURN_RIGHT
 };
 
 RobotState currentState = IDLE;  // Initial state
-bool isMoving = false;           // Indicates if the robot is moving
 int targetPosA = 0;              // Target encoder position for motor A
 int targetPosB = 0;              // Target encoder position for motor B
 
 // Function Prototypes
 void IRAM_ATTR updateEncoderA();
 void IRAM_ATTR updateEncoderB();
-void moveForwardNonBlocking(int steps);
 void turnLeftNonBlocking(int steps);
 void turnRightNonBlocking(int steps);
 void stopMotors();
 void setMotorSpeed(int motor, int speed);
-void checkSensors();
 void printMotorPositions();
 void buzz(int no);
 
@@ -76,29 +67,21 @@ void setup() {
 }
 
 void loop() {
-    // State Machine Logic
+    // State Machine Logic for Testing Turns
     switch (currentState) {
         case IDLE:
-            Serial.println("Robot is IDLE...");
-            printMotorPositions();
-            currentState = MOVE_FORWARD; // Start moving forward
-            moveForwardNonBlocking(2000); // Start non-blocking movement
-            break;
-
-        case MOVE_FORWARD:
-            // Check if target positions are reached
-            if (posA >= targetPosA && posB >= targetPosB) {
-                stopMotors();
-                currentState = CHECK_SENSORS; // Transition to sensor check
-            }
-            printMotorPositions();
+            Serial.println("Testing Turn...");
+            turnLeftNonBlocking(1000); // Start with 1000 steps (adjust this value)
+            currentState = TURN_LEFT;  // Transition to turning left
             break;
 
         case TURN_LEFT:
             // Check if target positions are reached
             if (posA <= targetPosA && posB >= targetPosB) {
                 stopMotors();
-                currentState = CHECK_SENSORS; // Transition to sensor check
+                delay(1000); // Pause to observe before the next action
+                turnRightNonBlocking(1000); // Test turning right with the same steps
+                currentState = TURN_RIGHT; // Transition to turning right
             }
             printMotorPositions();
             break;
@@ -107,38 +90,14 @@ void loop() {
             // Check if target positions are reached
             if (posA >= targetPosA && posB <= targetPosB) {
                 stopMotors();
-                currentState = CHECK_SENSORS; // Transition to sensor check
+                delay(1000); // Pause to observe
+                currentState = IDLE; // Restart the test
             }
             printMotorPositions();
-            break;
-
-        case CHECK_SENSORS:
-            checkSensors(); // Evaluate sensor data
-            printMotorPositions();
-            // Example logic to decide the next state
-            int sensor2Value = analogRead(IR_SENSOR2_PIN);
-            if (sensor2Value > 500) {
-                currentState = TURN_LEFT;
-                turnLeftNonBlocking(1000);
-            } else {
-                currentState = MOVE_FORWARD;
-                moveForwardNonBlocking(2000);
-            }
             break;
     }
 
     delay(10); // Small delay for stability
-}
-
-// Function to move forward (non-blocking)
-void moveForwardNonBlocking(int steps) {
-    targetPosA = posA + steps;
-    targetPosB = posB + steps;
-
-    setMotorSpeed(1, 200); // Motor 1 forward
-    setMotorSpeed(2, 200); // Motor 2 forward
-
-    isMoving = true;
 }
 
 // Function to turn left (non-blocking)
@@ -148,8 +107,6 @@ void turnLeftNonBlocking(int steps) {
 
     setMotorSpeed(1, -200); // Motor 1 backward
     setMotorSpeed(2, 200);  // Motor 2 forward
-
-    isMoving = true;
 }
 
 // Function to turn right (non-blocking)
@@ -159,15 +116,12 @@ void turnRightNonBlocking(int steps) {
 
     setMotorSpeed(1, 200);  // Motor 1 forward
     setMotorSpeed(2, -200); // Motor 2 backward
-
-    isMoving = true;
 }
 
 // Stop all motors
 void stopMotors() {
     setMotorSpeed(1, 0);
     setMotorSpeed(2, 0);
-    isMoving = false;
     printMotorPositions();
 }
 
@@ -229,20 +183,6 @@ void IRAM_ATTR updateEncoderB() {
     }
 
     lastEncodedB = encoded;
-}
-
-// Function to check sensors
-void checkSensors() {
-    int sensor1Value = analogRead(IR_SENSOR1_PIN);
-    int sensor2Value = analogRead(IR_SENSOR2_PIN);
-    int sensor3Value = analogRead(IR_SENSOR3_PIN);
-
-    Serial.print("Sensor 1: ");
-    Serial.print(sensor1Value);
-    Serial.print(" | Sensor 2: ");
-    Serial.print(sensor2Value);
-    Serial.print(" | Sensor 3: ");
-    Serial.println(sensor3Value);
 }
 
 // Function to print motor positions
