@@ -3,8 +3,8 @@
 #define PWM_MOTOR2 5
 #define MOTOR1_IN1 23
 #define MOTOR1_IN2 22
-#define MOTOR2_IN3 21
-#define MOTOR2_IN4 15
+#define MOTOR2_IN3 15
+#define MOTOR2_IN4 21
 
 #define ENCA1 16  // Encoder A channel A pin
 #define ENCA2 17  // Encoder A channel B pin
@@ -177,9 +177,9 @@ void IRAM_ATTR updateEncoderB() {
     int sum = (lastEncodedB << 2) | encoded;
 
     if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
-        posB++;
-    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
         posB--;
+    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
+        posB++;
     }
 
     lastEncodedB = encoded;
