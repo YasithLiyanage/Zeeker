@@ -10,29 +10,41 @@
 #define IR_SENSOR2_PIN 33
 #define IR_SENSOR3_PIN 25
 
-
 #define ENCA1 16  // Encoder A channel A pin
 #define ENCA2 17  // Encoder A channel B pin
-#define ENCB1 18 // Encoder B channel A pin
-#define ENCB2 19 // Encoder B channel B pin
+#define ENCB1 18  // Encoder B channel A pin
+#define ENCB2 19  // Encoder B channel B pin
 
+// Encoder variables
 volatile int posA = 0;  // Position for encoder A
 volatile int posB = 0;  // Position for encoder B
-volatile int lastEncodedA = 0;  // Used for storing the last encoded value of encoder A
-volatile int lastEncodedB = 0;  // Used for storing the last encoded value of encoder B
+volatile int lastEncodedA = 0;  // Last encoded value for encoder A
+volatile int lastEncodedB = 0;  // Last encoded value for encoder B
 
-// Forward declaration for the interrupt functions
+// State Machine Variables
+enum RobotState {
+    IDLE,
+    MOVE_FORWARD,
+    TURN_LEFT,
+    TURN_RIGHT,
+    CHECK_SENSORS
+};
+
+RobotState currentState = IDLE;  // Initial state
+bool isTurning = false;          // Indicates if the robot is turning
+int targetPosA = 0;              // Target encoder position for motor A
+int targetPosB = 0;              // Target encoder position for motor B
+
+// Function Prototypes
 void IRAM_ATTR updateEncoderA();
 void IRAM_ATTR updateEncoderB();
-
-bool isTurning = false;  // Indicates if the robot is currently turning
-int targetPosA = 0;      // Target position for encoder A
-int targetPosB = 0;      // Target position for encoder B
-int turnDirection = 0;   // 1 for right, -1 for left, 0 for no turn
-
-
-
-
+void moveForward(int steps);
+void turnLeftNonBlocking(int steps);
+void turnRightNonBlocking(int steps);
+void stopMotors();
+void setMotorSpeed(int motor, int speed);
+void checkSensors();
+void buzz(int no);
 
 void setup() {
     // Set up motor control pins as outputs
@@ -43,84 +55,83 @@ void setup() {
     pinMode(PWM_MOTOR1, OUTPUT);
     pinMode(PWM_MOTOR2, OUTPUT);
 
+    // Set up encoder pins as inputs
     pinMode(ENCA1, INPUT);
     pinMode(ENCA2, INPUT);
     pinMode(ENCB1, INPUT);
     pinMode(ENCB2, INPUT);
 
-    // Attach interrupt for encoder A channels
-    attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);  // Track both RISING and FALLING
-    attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);  // Track both RISING and FALLING
+    // Attach interrupt for encoder channels
+    attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);
 
-    // Attach interrupt for encoder B channels
-    attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);  // Track both RISING and FALLING
-    attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);  // Track both RISING and FALLING
-
-    buzz(1);
-
+    // Start Serial Monitor
     Serial.begin(115200);
+
+    // Initial buzzer signal
+    buzz(1);
 }
-
-
-
 
 void loop() {
-    // Read the analog values from the IR sensors
-    int sensor1Value = analogRead(IR_SENSOR1_PIN);
-    int sensor2Value = analogRead(IR_SENSOR2_PIN);
-    int sensor3Value = analogRead(IR_SENSOR3_PIN);
+    // State Machine Logic
+    switch (currentState) {
+        case IDLE:
+            Serial.println("Robot is IDLE...");
+            currentState = MOVE_FORWARD;  // Transition to MOVE_FORWARD
+            break;
 
-    // Output the sensor values to the Serial Monitor
-    Serial.print("Sensor 1: ");
-    Serial.print(sensor1Value);
-    Serial.print("  | Sensor 2: ");
-    Serial.print(sensor2Value);
-    Serial.print("  | Sensor 3: ");
-    Serial.print(sensor3Value);
-    Serial.print("  |  ");
+        case MOVE_FORWARD:
+            Serial.println("Moving Forward...");
+            moveForward(2000);           // Move forward for 2000 steps
+            currentState = CHECK_SENSORS; // Transition to CHECK_SENSORS
+            break;
 
-    // Output the motor positions
-    Serial.print("Motor A Position: ");
-    Serial.print(posA);
-    Serial.print("   Motor B Position: ");
-    Serial.println(posB);
+        case TURN_LEFT:
+            Serial.println("Turning Left...");
+            turnLeftNonBlocking(1000);   // Turn left for 1000 steps
+            currentState = CHECK_SENSORS; // Transition to CHECK_SENSORS
+            break;
 
-    // Handle motor turning if a turn is in progress
-    if (isTurning) {
-        if ((turnDirection == 1 && (posA >= targetPosA || posB <= targetPosB)) ||  // Turning right
-            (turnDirection == -1 && (posA <= targetPosA || posB >= targetPosB))) { // Turning left
-            stopMotors();
-            isTurning = false;  // Mark turn as completed
-        }
-    } else {
-        // Start a new turn
-        if (turnDirection == 0) {  // If no turn in progress
-            turnLeftNonBlocking(1000);  // Start turning left
-        } else if (turnDirection == -1) {
-            turnRightNonBlocking(1000);  // Start turning right
-        }
+        case TURN_RIGHT:
+            Serial.println("Turning Right...");
+            turnRightNonBlocking(1000);  // Turn right for 1000 steps
+            currentState = CHECK_SENSORS; // Transition to CHECK_SENSORS
+            break;
+
+        case CHECK_SENSORS:
+            Serial.println("Checking Sensors...");
+            checkSensors();              // Evaluate sensor data
+            // Decide the next state based on sensor readings (example logic)
+            int sensor2Value = analogRead(IR_SENSOR2_PIN);
+            if (sensor2Value > 500) {
+                currentState = TURN_LEFT; // Turn left if obstacle ahead
+            } else {
+                currentState = MOVE_FORWARD; // Otherwise, move forward
+            }
+            break;
     }
 
-    delay(100); // Small delay for readability in Serial Monitor
+    delay(100); // Small delay for stability
 }
 
-
-
-
-
-
-
-void turnRightNonBlocking(int steps) {
+// Function to move forward
+void moveForward(int steps) {
     targetPosA = posA + steps;
-    targetPosB = posB - steps;
+    targetPosB = posB + steps;
 
-    setMotorSpeed(1, 200);  // Motor 1 forward
-    setMotorSpeed(2, -200); // Motor 2 backward
+    setMotorSpeed(1, 200); // Motor 1 forward
+    setMotorSpeed(2, 200); // Motor 2 forward
 
-    isTurning = true;
-    turnDirection = 1;  // Indicate right turn
+    while (posA < targetPosA && posB < targetPosB) {
+        delay(10); // Allow encoder updates
+    }
+
+    stopMotors(); // Stop after reaching the target
 }
 
+// Function for non-blocking left turn
 void turnLeftNonBlocking(int steps) {
     targetPosA = posA - steps;
     targetPosB = posB + steps;
@@ -129,28 +140,30 @@ void turnLeftNonBlocking(int steps) {
     setMotorSpeed(2, 200);  // Motor 2 forward
 
     isTurning = true;
-    turnDirection = -1;  // Indicate left turn
 }
 
+// Function for non-blocking right turn
+void turnRightNonBlocking(int steps) {
+    targetPosA = posA + steps;
+    targetPosB = posB - steps;
 
+    setMotorSpeed(1, 200);  // Motor 1 forward
+    setMotorSpeed(2, -200); // Motor 2 backward
+
+    isTurning = true;
+}
+
+// Stop all motors
 void stopMotors() {
     setMotorSpeed(1, 0);
     setMotorSpeed(2, 0);
-    turnDirection = 0;  // Reset direction
+    isTurning = false;
 }
 
-
-
-
-
-
-
-
-
-
+// Set motor speed and direction
 void setMotorSpeed(int motor, int speed) {
     if (speed > 0) {
-        // Motor moves forward
+        // Forward
         if (motor == 1) {
             digitalWrite(MOTOR1_IN1, HIGH);
             digitalWrite(MOTOR1_IN2, LOW);
@@ -161,8 +174,8 @@ void setMotorSpeed(int motor, int speed) {
             analogWrite(PWM_MOTOR2, speed);
         }
     } else {
-        // Motor moves in reverse
-        speed = abs(speed); // Ensure speed is positive for PWM
+        // Reverse
+        speed = abs(speed); // Make speed positive
         if (motor == 1) {
             digitalWrite(MOTOR1_IN1, LOW);
             digitalWrite(MOTOR1_IN2, HIGH);
@@ -175,96 +188,60 @@ void setMotorSpeed(int motor, int speed) {
     }
 }
 
+// Encoder A interrupt service routine
+void IRAM_ATTR updateEncoderA() {
+    int MSB = digitalRead(ENCA1);  // Most Significant Bit
+    int LSB = digitalRead(ENCA2);  // Least Significant Bit
+    int encoded = (MSB << 1) | LSB;
+    int sum = (lastEncodedA << 2) | encoded;
 
-
-
-
-
-// Define the interrupt service routine for encoder A
-void IRAM_ATTR updateEncoderA(){
-    // Read the current state of both channels
-    int MSB_A = digitalRead(ENCA1);  // Most Significant Bit for encoder A
-    int LSB_A = digitalRead(ENCA2);  // Least Significant Bit for encoder A
-
-    int encodedA = (MSB_A << 1) | LSB_A;  // Combine the two bits into a single integer
-    int sumA = (lastEncodedA << 2) | encodedA;  // Shift and combine with the last encoded value
-
-    // Determine the direction based on the state transitions for encoder A
-    if (sumA == 0b1101 || sumA == 0b0100 || sumA == 0b0010 || sumA == 0b1011){
+    if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
         posA++;
-    }
-    else if (sumA == 0b1110 || sumA == 0b0111 || sumA == 0b0001 || sumA == 0b1000){
+    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
         posA--;
     }
 
-    lastEncodedA = encodedA;  // Store the current encoded value for the next iteration
+    lastEncodedA = encoded;
 }
 
-// Define the interrupt service routine for encoder B
-void IRAM_ATTR updateEncoderB(){
-    // Read the current state of both channels
-    int MSB_B = digitalRead(ENCB1);  //Most Significant Bit for encoder B
-    int LSB_B = digitalRead(ENCB2);  // Least Significant Bit for encoder B
+// Encoder B interrupt service routine
+void IRAM_ATTR updateEncoderB() {
+    int MSB = digitalRead(ENCB1);
+    int LSB = digitalRead(ENCB2);
+    int encoded = (MSB << 1) | LSB;
+    int sum = (lastEncodedB << 2) | encoded;
 
-    int encodedB = (MSB_B << 1) | LSB_B;  // Combine the two bits into a single integer
-    int sumB = (lastEncodedB << 2) | encodedB;  // Shift and combine with the last encoded value
-
-    // Determine the direction based on the state transitions for encoder B
-    if (sumB == 0b1101 || sumB == 0b0100 || sumB == 0b0010 || sumB == 0b1011){
+    if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
         posB++;
-    }
-    else if (sumB == 0b1110 || sumB == 0b0111 || sumB == 0b0001 || sumB == 0b1000){
+    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
         posB--;
     }
 
-    lastEncodedB = encodedB;  // Store the current encoded value for the next iteration
+    lastEncodedB = encoded;
 }
 
+// Function to check sensors
+void checkSensors() {
+    int sensor1Value = analogRead(IR_SENSOR1_PIN);
+    int sensor2Value = analogRead(IR_SENSOR2_PIN);
+    int sensor3Value = analogRead(IR_SENSOR3_PIN);
 
+    Serial.print("Sensor 1: ");
+    Serial.print(sensor1Value);
+    Serial.print(" | Sensor 2: ");
+    Serial.print(sensor2Value);
+    Serial.print(" | Sensor 3: ");
+    Serial.println(sensor3Value);
+}
 
-
-
-// BUZZER FEEDBACK
+// Buzzer feedback function
 void buzz(int no) {
-    switch(no) {
-        case 1 :
-            tone(2, 1500, 100);  // 1500 Hz tone for 100 ms
-            delay(200);
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
+    switch (no) {
+        case 1:
+            tone(2, 1500, 100); delay(200); tone(2, 1000, 100); delay(100);
             break;
-
-        case 2 :
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(150);
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(150);
-            break;
-
-        case 3 :
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
-            break;
-
-        case 31 :
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
-            break;
-
-        case 32 :
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
-            break;
-
-        case 33 :
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
-            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
-            delay(100);
+        case 2:
+            tone(2, 1000, 100); delay(150); tone(2, 1000, 100); delay(150);
             break;
     }
 }
