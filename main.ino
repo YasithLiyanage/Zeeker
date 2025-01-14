@@ -103,36 +103,34 @@ void turnRight(int steps) {
     int targetPosA = posA + steps;
     int targetPosB = posB - steps;
 
-    // Rotate right by running motor 1 forward and motor 2 backward
-    setMotorSpeed(1,200);
-    setMotorSpeed(2,-200);
+    // Rotate motors
+    setMotorSpeed(1, 200);  // Motor 1 forward
+    setMotorSpeed(2, -200); // Motor 2 backward
 
-    // Continuously check if the target position is reached
-    if (posA >= targetPosA) {
-        stopMotors();  // Stop motors when target position is reached
+    // Monitor encoder positions until the target is reached
+    while (posA < targetPosA || posB > targetPosB) {
+        delay(10); // Small delay to allow encoder updates
     }
+
+    stopMotors(); // Stop motors after reaching the target
 }
+
 
 void turnLeft(int steps) {
     // Set target positions
     int targetPosA = posA - steps;
     int targetPosB = posB + steps;
 
-    // Rotate left by running motor 1 backward and motor 2 forward
-    setMotorSpeed(1,-200);
-    setMotorSpeed(2,200);
+    // Rotate motors
+    setMotorSpeed(1, -200); // Motor 1 backward
+    setMotorSpeed(2, 200);  // Motor 2 forward
 
-    // Continuously check if the target position is reached
-    if (posA <= targetPosA) {
-        stopMotors();  // Stop motors when target position is reached
+    // Monitor encoder positions until the target is reached
+    while (posA > targetPosA || posB < targetPosB) {
+        delay(10); // Small delay to allow encoder updates
     }
-}
 
-
-// Stop motors
-void stopMotors() {
-    setMotorSpeed(1,0);
-    setMotorSpeed(2,0);
+    stopMotors(); // Stop motors after reaching the target
 }
 
 
