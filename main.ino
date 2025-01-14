@@ -21,7 +21,8 @@ volatile int lastEncodedB = 0;  // Last encoded value for encoder B
 enum RobotState {
     IDLE,
     TURN_LEFT,
-    TURN_RIGHT
+    TURN_RIGHT,
+    MOVE_FORWARD
 };
 
 RobotState currentState = IDLE;  // Initial state
