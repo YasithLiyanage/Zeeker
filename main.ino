@@ -45,6 +45,7 @@ void stopMotors();
 void setMotorSpeed(int motor, int speed);
 void checkSensors();
 void buzz(int no);
+void printMotorPositions();
 
 void setup() {
     // Set up motor control pins as outputs
@@ -79,6 +80,7 @@ void loop() {
     switch (currentState) {
         case IDLE:
             Serial.println("Robot is IDLE...");
+            printMotorPositions();
             currentState = MOVE_FORWARD;  // Transition to MOVE_FORWARD
             break;
 
@@ -103,6 +105,7 @@ void loop() {
         case CHECK_SENSORS:
             Serial.println("Checking Sensors...");
             checkSensors();              // Evaluate sensor data
+            printMotorPositions();       // Print motor positions during sensor checks
             // Decide the next state based on sensor readings (example logic)
             int sensor2Value = analogRead(IR_SENSOR2_PIN);
             if (sensor2Value > 500) {
@@ -125,6 +128,7 @@ void moveForward(int steps) {
     setMotorSpeed(2, 200); // Motor 2 forward
 
     while (posA < targetPosA && posB < targetPosB) {
+        printMotorPositions(); // Print motor positions during movement
         delay(10); // Allow encoder updates
     }
 
@@ -140,6 +144,7 @@ void turnLeftNonBlocking(int steps) {
     setMotorSpeed(2, 200);  // Motor 2 forward
 
     isTurning = true;
+    printMotorPositions();
 }
 
 // Function for non-blocking right turn
@@ -151,6 +156,7 @@ void turnRightNonBlocking(int steps) {
     setMotorSpeed(2, -200); // Motor 2 backward
 
     isTurning = true;
+    printMotorPositions();
 }
 
 // Stop all motors
@@ -158,6 +164,7 @@ void stopMotors() {
     setMotorSpeed(1, 0);
     setMotorSpeed(2, 0);
     isTurning = false;
+    printMotorPositions();
 }
 
 // Set motor speed and direction
@@ -244,4 +251,12 @@ void buzz(int no) {
             tone(2, 1000, 100); delay(150); tone(2, 1000, 100); delay(150);
             break;
     }
+}
+
+// Function to print motor positions
+void printMotorPositions() {
+    Serial.print("Motor A Position: ");
+    Serial.print(posA);
+    Serial.print(" | Motor B Position: ");
+    Serial.println(posB);
 }
