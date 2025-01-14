@@ -55,6 +55,9 @@ void setup() {
     Serial.begin(115200);
 }
 
+
+
+
 void loop() {
   // Read the analog values from the IR sensors
   int sensor1Value = analogRead(IR_SENSOR1_PIN);
@@ -73,7 +76,7 @@ void loop() {
 
  
 
-     noInterrupts();  // Disable interrupts while reading shared variables
+    noInterrupts();  // Disable interrupts while reading shared variables
     int currentPosA = posA;
     int currentPosB = posB;
     interrupts();    // Re-enable interrupts after reading
@@ -94,52 +97,48 @@ void loop() {
 
 
 
-// Number of encoder steps needed for a 90-degree turn (tune based on your robot)
-#define STEPS_FOR_90_DEGREE_TURN 1000
 
 void turnRight(int steps) {
     // Set target positions
     int targetPosA = posA + steps;
     int targetPosB = posB - steps;
 
-    // Rotate right by running motor 1 forward and motor 2 backward
-    digitalWrite(MOTOR1_IN1, HIGH);  // Motor 1 forward
-    digitalWrite(MOTOR1_IN2, LOW);   
-    digitalWrite(MOTOR2_IN3, LOW);   // Motor 2 backward
-    digitalWrite(MOTOR2_IN4, HIGH);
+    // Rotate motors
+    setMotorSpeed(1, 200);  // Motor 1 forward
+    setMotorSpeed(2, -200); // Motor 2 backward
 
-    // Continuously check if the target position is reached
-    if (posA >= targetPosA) {
-        stopMotors();  // Stop motors when target position is reached
+    // Monitor encoder positions until the target is reached
+    while (posA < targetPosA || posB > targetPosB) {
+        delay(10); // Small delay to allow encoder updates
     }
+
+    stopMotors(); // Stop motors after reaching the target
 }
+
 
 void turnLeft(int steps) {
     // Set target positions
     int targetPosA = posA - steps;
     int targetPosB = posB + steps;
 
-    // Rotate left by running motor 1 backward and motor 2 forward
-    digitalWrite(MOTOR1_IN1, LOW);  // Motor 1 backward
-    digitalWrite(MOTOR1_IN2, HIGH);   
-    digitalWrite(MOTOR2_IN3, HIGH);  // Motor 2 forward
-    digitalWrite(MOTOR2_IN4, LOW);
+    // Rotate motors
+    setMotorSpeed(1, -200); // Motor 1 backward
+    setMotorSpeed(2, 200);  // Motor 2 forward
 
-    // Continuously check if the target position is reached
-    if (posA <= targetPosA) {
-        stopMotors();  // Stop motors when target position is reached
+    // Monitor encoder positions until the target is reached
+    while (posA > targetPosA || posB < targetPosB) {
+        delay(10); // Small delay to allow encoder updates
     }
+
+    stopMotors(); // Stop motors after reaching the target
 }
+
 
 
 // Stop motors
 void stopMotors() {
-    analogWrite(PWM_MOTOR1, 0);
-    analogWrite(PWM_MOTOR2, 0);
-    digitalWrite(MOTOR1_IN1, LOW);
-    digitalWrite(MOTOR1_IN2, LOW);
-    digitalWrite(MOTOR2_IN3, LOW);
-    digitalWrite(MOTOR2_IN4, LOW);
+    setMotorSpeed(1,0);
+    setMotorSpeed(2,0);
 }
 
 
@@ -206,7 +205,7 @@ void IRAM_ATTR updateEncoderA(){
 // Define the interrupt service routine for encoder B
 void IRAM_ATTR updateEncoderB(){
     // Read the current state of both channels
-    int MSB_B = digitalRead(ENCB1);  // Most Significant Bit for encoder B
+    int MSB_B = digitalRead(ENCB1);  //Most Significant Bit for encoder B
     int LSB_B = digitalRead(ENCB2);  // Least Significant Bit for encoder B
 
     int encodedB = (MSB_B << 1) | LSB_B;  // Combine the two bits into a single integer
