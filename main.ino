@@ -112,6 +112,15 @@ void loop() {
 }
 
 
+// Function to move forward (non-blocking)
+void moveForwardNonBlocking(int steps) {
+    targetPosA = posA + steps; // Target position for Motor 1
+    targetPosB = posB + steps; // Target position for Motor 2
+
+    setMotorSpeed(1, 200); // Motor 1 forward
+    setMotorSpeed(2, 200); // Motor 2 forward
+}
+
 // Function to turn left (non-blocking)
 void turnLeftNonBlocking(int steps) {
     targetPosA = posA - steps;
