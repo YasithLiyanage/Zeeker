@@ -50,6 +50,8 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);  // Track both RISING and FALLING
     attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);  // Track both RISING and FALLING
 
+    buzz(1);
+
     Serial.begin(115200);
 }
 
@@ -82,10 +84,104 @@ void loop() {
     Serial.print("   Motor B Position: ");
     Serial.println(currentPosB);
 
+    turnLeft(1000);
+    turnRight(1000);
 
-  // Add a delay for readability
-  delay(200);
 }
+
+
+
+
+
+
+// Number of encoder steps needed for a 90-degree turn (tune based on your robot)
+#define STEPS_FOR_90_DEGREE_TURN 1000
+
+void turnRight(int steps) {
+    // Set target positions
+    int targetPosA = posA + steps;
+    int targetPosB = posB - steps;
+
+    // Rotate right by running motor 1 forward and motor 2 backward
+    digitalWrite(MOTOR1_IN1, HIGH);  // Motor 1 forward
+    digitalWrite(MOTOR1_IN2, LOW);   
+    digitalWrite(MOTOR2_IN3, LOW);   // Motor 2 backward
+    digitalWrite(MOTOR2_IN4, HIGH);
+
+    // Continuously check if the target position is reached
+    if (posA >= targetPosA) {
+        stopMotors();  // Stop motors when target position is reached
+    }
+}
+
+void turnLeft(int steps) {
+    // Set target positions
+    int targetPosA = posA - steps;
+    int targetPosB = posB + steps;
+
+    // Rotate left by running motor 1 backward and motor 2 forward
+    digitalWrite(MOTOR1_IN1, LOW);  // Motor 1 backward
+    digitalWrite(MOTOR1_IN2, HIGH);   
+    digitalWrite(MOTOR2_IN3, HIGH);  // Motor 2 forward
+    digitalWrite(MOTOR2_IN4, LOW);
+
+    // Continuously check if the target position is reached
+    if (posA <= targetPosA) {
+        stopMotors();  // Stop motors when target position is reached
+    }
+}
+
+
+// Stop motors
+void stopMotors() {
+    analogWrite(PWM_MOTOR1, 0);
+    analogWrite(PWM_MOTOR2, 0);
+    digitalWrite(MOTOR1_IN1, LOW);
+    digitalWrite(MOTOR1_IN2, LOW);
+    digitalWrite(MOTOR2_IN3, LOW);
+    digitalWrite(MOTOR2_IN4, LOW);
+}
+
+
+
+
+
+
+
+
+
+
+void setMotorSpeed(int motor, int speed) {
+    if (speed > 0) {
+        // Motor moves forward
+        if (motor == 1) {
+            digitalWrite(MOTOR1_IN1, HIGH);
+            digitalWrite(MOTOR1_IN2, LOW);
+            analogWrite(PWM_MOTOR1, speed);
+        } else if (motor == 2) {
+            digitalWrite(MOTOR2_IN3, HIGH);
+            digitalWrite(MOTOR2_IN4, LOW);
+            analogWrite(PWM_MOTOR2, speed);
+        }
+    } else {
+        // Motor moves in reverse
+        speed = abs(speed); // Ensure speed is positive for PWM
+        if (motor == 1) {
+            digitalWrite(MOTOR1_IN1, LOW);
+            digitalWrite(MOTOR1_IN2, HIGH);
+            analogWrite(PWM_MOTOR1, speed);
+        } else if (motor == 2) {
+            digitalWrite(MOTOR2_IN3, LOW);
+            digitalWrite(MOTOR2_IN4, HIGH);
+            analogWrite(PWM_MOTOR2, speed);
+        }
+    }
+}
+
+
+
+
+
 
 // Define the interrupt service routine for encoder A
 void IRAM_ATTR updateEncoderA(){
@@ -125,4 +221,53 @@ void IRAM_ATTR updateEncoderB(){
     }
 
     lastEncodedB = encodedB;  // Store the current encoded value for the next iteration
+}
+
+
+
+
+
+// BUZZER FEEDBACK
+void buzz(int no) {
+    switch(no) {
+        case 1 :
+            tone(2, 1500, 100);  // 1500 Hz tone for 100 ms
+            delay(200);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 2 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(150);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(150);
+            break;
+
+        case 3 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 31 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 32 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 33 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+    }
 }

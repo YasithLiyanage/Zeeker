@@ -16,6 +16,7 @@ void setup() {
     pinMode(PWM_MOTOR2, OUTPUT);
 
     Serial.begin(115200);
+    buzz(1);
 }
 
 void loop() {
@@ -48,4 +49,79 @@ void loop() {
     digitalWrite(MOTOR2_IN3, LOW);
     digitalWrite(MOTOR2_IN4, LOW);
     delay(2000); // Pause before repeating
+}
+
+
+void setMotorSpeed(int motor, int speed) {
+    if (speed > 0) {
+        // Motor moves forward
+        if (motor == 1) {
+            digitalWrite(MOTOR1_IN1, HIGH);
+            digitalWrite(MOTOR1_IN2, LOW);
+            analogWrite(PWM_MOTOR1, speed);
+        } else if (motor == 2) {
+            digitalWrite(MOTOR2_IN3, HIGH);
+            digitalWrite(MOTOR2_IN4, LOW);
+            analogWrite(PWM_MOTOR2, speed);
+        }
+    } else {
+        // Motor moves in reverse
+        speed = abs(speed); // Ensure speed is positive for PWM
+        if (motor == 1) {
+            digitalWrite(MOTOR1_IN1, LOW);
+            digitalWrite(MOTOR1_IN2, HIGH);
+            analogWrite(PWM_MOTOR1, speed);
+        } else if (motor == 2) {
+            digitalWrite(MOTOR2_IN3, LOW);
+            digitalWrite(MOTOR2_IN4, HIGH);
+            analogWrite(PWM_MOTOR2, speed);
+        }
+    }
+}
+
+
+
+// BUZZER FEEDBACK
+void buzz(int no) {
+    switch(no) {
+        case 1 :
+            tone(2, 1500, 100);  // 1500 Hz tone for 100 ms
+            delay(200);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 2 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(150);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(150);
+            break;
+
+        case 3 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 31 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 32 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+
+        case 33 :
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            tone(2, 1000, 100);  // 1000 Hz tone for 100 ms
+            delay(100);
+            break;
+    }
 }
