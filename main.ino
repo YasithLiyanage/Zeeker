@@ -25,6 +25,12 @@ volatile int lastEncodedB = 0;  // Used for storing the last encoded value of en
 void IRAM_ATTR updateEncoderA();
 void IRAM_ATTR updateEncoderB();
 
+bool isTurning = false;  // Indicates if the robot is currently turning
+int targetPosA = 0;      // Target position for encoder A
+int targetPosB = 0;      // Target position for encoder B
+int turnDirection = 0;   // 1 for right, -1 for left, 0 for no turn
+
+
 
 
 
@@ -59,37 +65,43 @@ void setup() {
 
 
 void loop() {
-  // Read the analog values from the IR sensors
-  int sensor1Value = analogRead(IR_SENSOR1_PIN);
-  int sensor2Value = analogRead(IR_SENSOR2_PIN);
-  int sensor3Value = analogRead(IR_SENSOR3_PIN);
+    // Read the analog values from the IR sensors
+    int sensor1Value = analogRead(IR_SENSOR1_PIN);
+    int sensor2Value = analogRead(IR_SENSOR2_PIN);
+    int sensor3Value = analogRead(IR_SENSOR3_PIN);
 
+    // Output the sensor values to the Serial Monitor
+    Serial.print("Sensor 1: ");
+    Serial.print(sensor1Value);
+    Serial.print("  | Sensor 2: ");
+    Serial.print(sensor2Value);
+    Serial.print("  | Sensor 3: ");
+    Serial.print(sensor3Value);
+    Serial.print("  |  ");
 
-  // Output the values to the Serial Monitor
-  Serial.print("Sensor 1: ");
-  Serial.print(sensor1Value);
-  Serial.print("  | Sensor 2: ");
-  Serial.print(sensor2Value);
-  Serial.print("  | Sensor 3: ");
-  Serial.print(sensor3Value);
-  Serial.print("  |  ");
-
- 
-
-    noInterrupts();  // Disable interrupts while reading shared variables
-    int currentPosA = posA;
-    int currentPosB = posB;
-    interrupts();    // Re-enable interrupts after reading
-
-    // Print the current position of the motor for both encoders
+    // Output the motor positions
     Serial.print("Motor A Position: ");
-    Serial.print(currentPosA);
+    Serial.print(posA);
     Serial.print("   Motor B Position: ");
-    Serial.println(currentPosB);
+    Serial.println(posB);
 
-    turnLeft(1000);
-    turnRight(1000);
+    // Handle motor turning if a turn is in progress
+    if (isTurning) {
+        if ((turnDirection == 1 && (posA >= targetPosA || posB <= targetPosB)) ||  // Turning right
+            (turnDirection == -1 && (posA <= targetPosA || posB >= targetPosB))) { // Turning left
+            stopMotors();
+            isTurning = false;  // Mark turn as completed
+        }
+    } else {
+        // Start a new turn
+        if (turnDirection == 0) {  // If no turn in progress
+            turnLeftNonBlocking(1000);  // Start turning left
+        } else if (turnDirection == -1) {
+            turnRightNonBlocking(1000);  // Start turning right
+        }
+    }
 
+    delay(100); // Small delay for readability in Serial Monitor
 }
 
 
@@ -98,47 +110,33 @@ void loop() {
 
 
 
-void turnRight(int steps) {
-    // Set target positions
-    int targetPosA = posA + steps;
-    int targetPosB = posB - steps;
+void turnRightNonBlocking(int steps) {
+    targetPosA = posA + steps;
+    targetPosB = posB - steps;
 
-    // Rotate motors
     setMotorSpeed(1, 200);  // Motor 1 forward
     setMotorSpeed(2, -200); // Motor 2 backward
 
-    // Monitor encoder positions until the target is reached
-    while (posA < targetPosA || posB > targetPosB) {
-        delay(10); // Small delay to allow encoder updates
-    }
-
-    stopMotors(); // Stop motors after reaching the target
+    isTurning = true;
+    turnDirection = 1;  // Indicate right turn
 }
 
+void turnLeftNonBlocking(int steps) {
+    targetPosA = posA - steps;
+    targetPosB = posB + steps;
 
-void turnLeft(int steps) {
-    // Set target positions
-    int targetPosA = posA - steps;
-    int targetPosB = posB + steps;
-
-    // Rotate motors
     setMotorSpeed(1, -200); // Motor 1 backward
     setMotorSpeed(2, 200);  // Motor 2 forward
 
-    // Monitor encoder positions until the target is reached
-    while (posA > targetPosA || posB < targetPosB) {
-        delay(10); // Small delay to allow encoder updates
-    }
-
-    stopMotors(); // Stop motors after reaching the target
+    isTurning = true;
+    turnDirection = -1;  // Indicate left turn
 }
 
 
-
-// Stop motors
 void stopMotors() {
-    setMotorSpeed(1,0);
-    setMotorSpeed(2,0);
+    setMotorSpeed(1, 0);
+    setMotorSpeed(2, 0);
+    turnDirection = 0;  // Reset direction
 }
 
 
