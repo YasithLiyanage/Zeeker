@@ -67,21 +67,32 @@ void setup() {
 }
 
 void loop() {
-    // State Machine Logic for Testing Turns
+    // State Machine Logic for Testing Movement
     switch (currentState) {
         case IDLE:
-            Serial.println("Testing Turn...");
-            turnLeftNonBlocking(1000); // Start with 1000 steps (adjust this value)
-            currentState = TURN_LEFT;  // Transition to turning left
+            Serial.println("Testing Forward Movement...");
+            moveForwardNonBlocking(2000); // Move forward 2000 steps (adjust this value for calibration)
+            currentState = MOVE_FORWARD;  // Transition to moving forward
+            break;
+
+        case MOVE_FORWARD:
+            // Check if target positions are reached
+            if (posA >= targetPosA && posB >= targetPosB) {
+                stopMotors();
+                delay(1000); // Pause to observe before next action
+                turnLeftNonBlocking(1000); // Test turning left
+                currentState = TURN_LEFT;  // Transition to turning left
+            }
+            printMotorPositions();
             break;
 
         case TURN_LEFT:
             // Check if target positions are reached
             if (posA <= targetPosA && posB >= targetPosB) {
                 stopMotors();
-                delay(1000); // Pause to observe before the next action
-                turnRightNonBlocking(1000); // Test turning right with the same steps
-                currentState = TURN_RIGHT; // Transition to turning right
+                delay(1000); // Pause to observe
+                turnRightNonBlocking(1000); // Test turning right
+                currentState = TURN_RIGHT;  // Transition to turning right
             }
             printMotorPositions();
             break;
@@ -99,6 +110,7 @@ void loop() {
 
     delay(10); // Small delay for stability
 }
+
 
 // Function to turn left (non-blocking)
 void turnLeftNonBlocking(int steps) {
