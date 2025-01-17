@@ -17,6 +17,21 @@ volatile int posB = 0;  // Position for encoder B
 volatile int lastEncodedA = 0;  // Last encoded value for encoder A
 volatile int lastEncodedB = 0;  // Last encoded value for encoder B
 
+// PID constants
+#define KP 1.5  // Proportional constant
+#define KI 0.0  // Integral constant
+#define KD 0.5  // Derivative constant
+
+// PID variables
+float errorA = 0, errorB = 0;         // Current error for encoders A and B
+float prevErrorA = 0, prevErrorB = 0; // Previous error for encoders A and B
+float integralA = 0, integralB = 0;   // Integral term for encoders A and B
+float derivativeA = 0, derivativeB = 0; // Derivative term for encoders A and B
+
+// Target speed for the motors (encoder steps per loop cycle)
+int targetSpeedA = 0;
+int targetSpeedB = 0;
+
 // State Machine Variables
 enum RobotState {
     IDLE,
@@ -32,10 +47,12 @@ int targetPosB = 0;              // Target encoder position for motor B
 // Function Prototypes
 void IRAM_ATTR updateEncoderA();
 void IRAM_ATTR updateEncoderB();
+void moveForwardNonBlocking(int steps);
 void turnLeftNonBlocking(int steps);
 void turnRightNonBlocking(int steps);
 void stopMotors();
 void setMotorSpeed(int motor, int speed);
+void calculatePID();
 void printMotorPositions();
 void buzz(int no);
 
@@ -68,19 +85,21 @@ void setup() {
 }
 
 void loop() {
+    // Calculate PID for smooth motor control
+    calculatePID();
+
     // State Machine Logic for Testing Movement
     switch (currentState) {
         case IDLE:
             Serial.println("Testing Forward Movement...");
-            moveForwardNonBlocking(2000); // Move forward 2000 steps (adjust this value for calibration)
+            moveForwardNonBlocking(2000); // Move forward 2000 steps
             currentState = MOVE_FORWARD;  // Transition to moving forward
             break;
 
         case MOVE_FORWARD:
-            // Check if target positions are reached
             if (posA >= targetPosA && posB >= targetPosB) {
                 stopMotors();
-                delay(1000); // Pause to observe before next action
+                delay(1000);
                 turnLeftNonBlocking(1000); // Test turning left
                 currentState = TURN_LEFT;  // Transition to turning left
             }
@@ -88,10 +107,9 @@ void loop() {
             break;
 
         case TURN_LEFT:
-            // Check if target positions are reached
             if (posA <= targetPosA && posB >= targetPosB) {
                 stopMotors();
-                delay(1000); // Pause to observe
+                delay(1000);
                 turnRightNonBlocking(1000); // Test turning right
                 currentState = TURN_RIGHT;  // Transition to turning right
             }
@@ -99,10 +117,9 @@ void loop() {
             break;
 
         case TURN_RIGHT:
-            // Check if target positions are reached
             if (posA >= targetPosA && posB <= targetPosB) {
                 stopMotors();
-                delay(1000); // Pause to observe
+                delay(1000);
                 currentState = IDLE; // Restart the test
             }
             printMotorPositions();
@@ -112,14 +129,34 @@ void loop() {
     delay(10); // Small delay for stability
 }
 
+// Calculate PID values and set motor speeds
+void calculatePID() {
+    // Calculate PID for motor A
+    errorA = targetSpeedA - (posA - prevErrorA);
+    integralA += errorA;
+    derivativeA = errorA - prevErrorA;
+    int outputA = KP * errorA + KI * integralA + KD * derivativeA;
+    prevErrorA = posA;
+
+    // Calculate PID for motor B
+    errorB = targetSpeedB - (posB - prevErrorB);
+    integralB += errorB;
+    derivativeB = errorB - prevErrorB;
+    int outputB = KP * errorB + KI * integralB + KD * derivativeB;
+    prevErrorB = posB;
+
+    // Set motor speeds using PID outputs
+    setMotorSpeed(1, constrain(outputA, -255, 255));
+    setMotorSpeed(2, constrain(outputB, -255, 255));
+}
 
 // Function to move forward (non-blocking)
 void moveForwardNonBlocking(int steps) {
-    targetPosA = posA + steps; // Target position for Motor 1
-    targetPosB = posB + steps; // Target position for Motor 2
+    targetPosA = posA + steps;
+    targetPosB = posB + steps;
 
-    setMotorSpeed(1, 200); // Motor 1 forward
-    setMotorSpeed(2, 200); // Motor 2 forward
+    targetSpeedA = 200; // Target speed for PID
+    targetSpeedB = 200;
 }
 
 // Function to turn left (non-blocking)
@@ -127,8 +164,8 @@ void turnLeftNonBlocking(int steps) {
     targetPosA = posA - steps;
     targetPosB = posB + steps;
 
-    setMotorSpeed(1, -200); // Motor 1 backward
-    setMotorSpeed(2, 200);  // Motor 2 forward
+    targetSpeedA = -200;
+    targetSpeedB = 200;
 }
 
 // Function to turn right (non-blocking)
@@ -136,12 +173,14 @@ void turnRightNonBlocking(int steps) {
     targetPosA = posA + steps;
     targetPosB = posB - steps;
 
-    setMotorSpeed(1, 200);  // Motor 1 forward
-    setMotorSpeed(2, -200); // Motor 2 backward
+    targetSpeedA = 200;
+    targetSpeedB = -200;
 }
 
 // Stop all motors
 void stopMotors() {
+    targetSpeedA = 0;
+    targetSpeedB = 0;
     setMotorSpeed(1, 0);
     setMotorSpeed(2, 0);
     printMotorPositions();
@@ -150,7 +189,6 @@ void stopMotors() {
 // Set motor speed and direction
 void setMotorSpeed(int motor, int speed) {
     if (speed > 0) {
-        // Forward
         if (motor == 1) {
             digitalWrite(MOTOR1_IN1, HIGH);
             digitalWrite(MOTOR1_IN2, LOW);
@@ -161,8 +199,7 @@ void setMotorSpeed(int motor, int speed) {
             analogWrite(PWM_MOTOR2, speed);
         }
     } else {
-        // Reverse
-        speed = abs(speed); // Make speed positive
+        speed = abs(speed);
         if (motor == 1) {
             digitalWrite(MOTOR1_IN1, LOW);
             digitalWrite(MOTOR1_IN2, HIGH);
@@ -175,10 +212,10 @@ void setMotorSpeed(int motor, int speed) {
     }
 }
 
-// Encoder A interrupt service routine
+// Encoder interrupt handlers
 void IRAM_ATTR updateEncoderA() {
-    int MSB = digitalRead(ENCA1);  // Most Significant Bit
-    int LSB = digitalRead(ENCA2);  // Least Significant Bit
+    int MSB = digitalRead(ENCA1);
+    int LSB = digitalRead(ENCA2);
     int encoded = (MSB << 1) | LSB;
     int sum = (lastEncodedA << 2) | encoded;
 
@@ -191,7 +228,6 @@ void IRAM_ATTR updateEncoderA() {
     lastEncodedA = encoded;
 }
 
-// Encoder B interrupt service routine
 void IRAM_ATTR updateEncoderB() {
     int MSB = digitalRead(ENCB1);
     int LSB = digitalRead(ENCB2);
