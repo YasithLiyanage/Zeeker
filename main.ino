@@ -126,24 +126,33 @@ void setup() {
 
 
 void loop() {
+    // Check if there is a wall in front
     if (isWallFront()) {
+        // If there's a wall in front, stop and attempt to turn
         Serial.println("Wall detected in front!");
-        stopMotors();  // Stop motors when a wall is detected
+        stopMotors();
+
+        // Check for walls on the left or right and decide the turn direction
+        if (isWallLeft()) {
+            Serial.println("Wall detected on the left, turning right...");
+            turnRightNonBlocking(1000);  // Turn right if left is blocked
+        } else if (isWallRight()) {
+            Serial.println("Wall detected on the right, turning left...");
+            turnLeftNonBlocking(1000);   // Turn left if right is blocked
+        } else {
+            // If no wall on left or right, attempt to turn around (turn back)
+            Serial.println("No wall on left or right, turning around...");
+            turnLeftNonBlocking(2000);   // Turn around by turning left (or right)
+        }
     } else {
+        // No wall in front, move forward
         Serial.println("No wall in front, moving forward...");
-        moveForwardNonBlocking(2000);  // Move forward if no wall detected
+        moveForwardNonBlocking(2000);
     }
 
-    if (isWallLeft()) {
-        Serial.println("Wall detected on the left!");
-    }
-
-    if (isWallRight()) {
-        Serial.println("Wall detected on the right!");
-    }
-
-    delay(100);  // Short delay for stability
+    delay(100);  // Small delay for stability
 }
+
 
 
 
