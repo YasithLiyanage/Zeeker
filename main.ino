@@ -1,3 +1,8 @@
+#define IR_SENSOR_FRONT 33   // Pin for the front IR sensor
+#define IR_SENSOR_LEFT 32   // Pin for the left IR sensor
+#define IR_SENSOR_RIGHT 25   // Pin for the right IR sensor
+
+
 // Pin Definitions
 #define PWM_MOTOR1 4
 #define PWM_MOTOR2 5
@@ -40,6 +45,12 @@ void printMotorPositions();
 void buzz(int no);
 
 void setup() {
+
+    //IR
+    pinMode(IR_SENSOR_FRONT, INPUT);
+    pinMode(IR_SENSOR_LEFT, INPUT);
+    pinMode(IR_SENSOR_RIGHT, INPUT);
+
     // Set up motor control pins as outputs
     pinMode(MOTOR1_IN1, OUTPUT);
     pinMode(MOTOR1_IN2, OUTPUT);
@@ -67,50 +78,99 @@ void setup() {
     buzz(1);
 }
 
+// void loop() {
+//     // State Machine Logic for Testing Movement
+//     switch (currentState) {
+//         case IDLE:
+//             Serial.println("Testing Forward Movement...");
+//             moveForwardNonBlocking(2000); // Move forward 2000 steps (adjust this value for calibration)
+//             currentState = MOVE_FORWARD;  // Transition to moving forward
+//             break;
+
+//         case MOVE_FORWARD:
+//             // Check if target positions are reached
+//             if (posA >= targetPosA && posB >= targetPosB) {
+//                 stopMotors();
+//                 delay(1000); // Pause to observe before next action
+//                 turnLeftNonBlocking(1000); // Test turning left
+//                 currentState = TURN_LEFT;  // Transition to turning left
+//             }
+//             printMotorPositions();
+//             break;
+
+//         case TURN_LEFT:
+//             // Check if target positions are reached
+//             if (posA <= targetPosA && posB >= targetPosB) {
+//                 stopMotors();
+//                 delay(1000); // Pause to observe
+//                 turnRightNonBlocking(1000); // Test turning right
+//                 currentState = TURN_RIGHT;  // Transition to turning right
+//             }
+//             printMotorPositions();
+//             break;
+
+//         case TURN_RIGHT:
+//             // Check if target positions are reached
+//             if (posA >= targetPosA && posB <= targetPosB) {
+//                 stopMotors();
+//                 delay(1000); // Pause to observe
+//                 currentState = IDLE; // Restart the test
+//             }
+//             printMotorPositions();
+//             break;
+//     }
+
+//     delay(10); // Small delay for stability
+// }
+
+
+
 void loop() {
-    // State Machine Logic for Testing Movement
-    switch (currentState) {
-        case IDLE:
-            Serial.println("Testing Forward Movement...");
-            moveForwardNonBlocking(2000); // Move forward 2000 steps (adjust this value for calibration)
-            currentState = MOVE_FORWARD;  // Transition to moving forward
-            break;
-
-        case MOVE_FORWARD:
-            // Check if target positions are reached
-            if (posA >= targetPosA && posB >= targetPosB) {
-                stopMotors();
-                delay(1000); // Pause to observe before next action
-                turnLeftNonBlocking(1000); // Test turning left
-                currentState = TURN_LEFT;  // Transition to turning left
-            }
-            printMotorPositions();
-            break;
-
-        case TURN_LEFT:
-            // Check if target positions are reached
-            if (posA <= targetPosA && posB >= targetPosB) {
-                stopMotors();
-                delay(1000); // Pause to observe
-                turnRightNonBlocking(1000); // Test turning right
-                currentState = TURN_RIGHT;  // Transition to turning right
-            }
-            printMotorPositions();
-            break;
-
-        case TURN_RIGHT:
-            // Check if target positions are reached
-            if (posA >= targetPosA && posB <= targetPosB) {
-                stopMotors();
-                delay(1000); // Pause to observe
-                currentState = IDLE; // Restart the test
-            }
-            printMotorPositions();
-            break;
+    if (isWallFront()) {
+        Serial.println("Wall detected in front!");
+        stopMotors();  // Stop motors when a wall is detected
+    } else {
+        Serial.println("No wall in front, moving forward...");
+        moveForwardNonBlocking(2000);  // Move forward if no wall detected
     }
 
-    delay(10); // Small delay for stability
+    if (isWallLeft()) {
+        Serial.println("Wall detected on the left!");
+    }
+
+    if (isWallRight()) {
+        Serial.println("Wall detected on the right!");
+    }
+
+    delay(100);  // Short delay for stability
 }
+
+
+
+
+int frontThreshold = 4000; // Adjust this threshold based on your testing
+int leftThreshold = 4000;  // Adjust this threshold based on your testing
+int rightThreshold = 4000; // Adjust this threshold based on your testing
+
+// Function to check if there's a wall in front
+bool isWallFront() {
+    int sensorValue = analogRead(IR_SENSOR_FRONT);
+    return sensorValue < frontThreshold;  // Wall detected if value is below threshold
+}
+
+// Function to check if there's a wall on the left
+bool isWallLeft() {
+    int sensorValue = analogRead(IR_SENSOR_LEFT);
+    return sensorValue < leftThreshold;  // Wall detected if value is below threshold
+}
+
+// Function to check if there's a wall on the right
+bool isWallRight() {
+    int sensorValue = analogRead(IR_SENSOR_RIGHT);
+    return sensorValue < rightThreshold;  // Wall detected if value is below threshold
+}
+
+
 
 
 // Function to move forward (non-blocking)
