@@ -21,6 +21,9 @@ volatile int posB = 0;  // Position for encoder B
 volatile int lastEncodedA = 0;  // Last encoded value for encoder A
 volatile int lastEncodedB = 0;  // Last encoded value for encoder B
 
+int targetPosA = 0; // Target position for encoder A
+int targetPosB = 0; // Target position for encoder B
+
 // Thresholds for IR sensors
 int frontThreshold = 4000; // Adjust this threshold based on your testing
 int leftThreshold = 4000;  // Adjust this threshold based on your testing
@@ -86,25 +89,21 @@ void loop() {
     Serial.print(" | Right Sensor: ");
     Serial.println(rightValue);
 
-    // Check if there is a wall in front
-    if (isWallFront()) {
-        Serial.println("Wall detected in front!");
-        stopMotors();
-
-        // Check for walls on the left or right and decide turn direction
-        if (isWallLeft()) {
-            Serial.println("Wall detected on the left, turning right...");
+    // Left hand wall-following logic
+    if (isWallLeft()) {
+        if (isWallFront()) {
+            // Turn right if wall is in front and on the left
+            Serial.println("Wall detected on front and left. Turning right...");
             turnRightNonBlocking(700);
-        } else if (isWallRight()) {
-            Serial.println("Wall detected on the right, turning left...");
-            turnLeftNonBlocking(700);
         } else {
-            Serial.println("No wall on left or right, turning around...");
-            turnLeftNonBlocking(1400); // Turn around
+            // Move forward if no wall in front but wall on left
+            Serial.println("Wall detected on left. Moving forward...");
+            moveForwardNonBlocking(200);
         }
     } else {
-        Serial.println("No wall in front, moving forward...");
-        moveForwardNonBlocking(200);
+        // Turn left if no wall on the left
+        Serial.println("No wall on left. Turning left...");
+        turnLeftNonBlocking(700);
     }
 
     delay(100); // Small delay for stability
