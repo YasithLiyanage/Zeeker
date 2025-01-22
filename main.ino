@@ -1,8 +1,7 @@
 #define IR_SENSOR_FRONT 33   // Pin for the front IR sensor
 #define IR_SENSOR_LEFT 32   // Pin for the left IR sensor
-#define IR_SENSOR_RIGHT 25   // Pin for the right IR sensor
+#define IR_SENSOR_RIGHT 25  // Pin for the right IR sensor
 
-// Pin Definitions
 #define PWM_MOTOR1 4
 #define PWM_MOTOR2 5
 #define MOTOR1_IN1 23
@@ -15,42 +14,49 @@
 #define ENCB1 18  // Encoder B channel A pin
 #define ENCB2 19  // Encoder B channel B pin
 
-// Encoder variables
-volatile int posA = 0;  // Position for encoder A
-volatile int posB = 0;  // Position for encoder B
-volatile int lastEncodedA = 0;  // Last encoded value for encoder A
-volatile int lastEncodedB = 0;  // Last encoded value for encoder B
+#define MAZE_ROWS 3
+#define MAZE_COLS 5
 
-int targetPosA = 0; // Target position for encoder A
-int targetPosB = 0; // Target position for encoder B
+// Encoder variables
+volatile int posA = 0;
+volatile int posB = 0;
+volatile int lastEncodedA = 0;
+volatile int lastEncodedB = 0;
+
+int targetPosA = 0;
+int targetPosB = 0;
 
 // Thresholds for IR sensors
-int frontThreshold = 3000; // Adjust this threshold based on your testing
-int leftThreshold = 3900;  // Adjust this threshold based on your testing
-int rightThreshold = 3900; // Adjust this threshold based on your testing
+int frontThreshold = 3000;
+int leftThreshold = 3900;
+int rightThreshold = 3900;
 
-// Function Prototypes
-void IRAM_ATTR updateEncoderA();
-void IRAM_ATTR updateEncoderB();
-void turnLeftBlocking(int steps);
-void turnRightBlocking(int steps);
-void moveForwardBlocking(int steps);
-void stopMotors();
-void setMotorSpeed(int motor, int speed);
-void printMotorPositions();
-void buzz(int no);
+int maze[MAZE_ROWS][MAZE_COLS];
+int currentRow = 2;
+int currentCol = 0;
+int goalRow = 1;
+int goalCol = 2;
 
+// Function prototypes
+void initializeFloodFill();
+void updateMazeWalls(int row, int col);
+void moveMicromouse();
 bool isWallFront();
 bool isWallLeft();
 bool isWallRight();
+void moveForwardBlocking(int steps);
+void turnLeftBlocking(int steps);
+void turnRightBlocking(int steps);
+void stopMotors();
+void setMotorSpeed(int motor, int speed);
+void printMaze();
+void buzz(int no);
 
 void setup() {
-    // IR sensors setup
     pinMode(IR_SENSOR_FRONT, INPUT);
     pinMode(IR_SENSOR_LEFT, INPUT);
     pinMode(IR_SENSOR_RIGHT, INPUT);
 
-    // Motor control pins setup
     pinMode(MOTOR1_IN1, OUTPUT);
     pinMode(MOTOR1_IN2, OUTPUT);
     pinMode(MOTOR2_IN3, OUTPUT);
@@ -58,56 +64,82 @@ void setup() {
     pinMode(PWM_MOTOR1, OUTPUT);
     pinMode(PWM_MOTOR2, OUTPUT);
 
-    // Encoder pins setup
     pinMode(ENCA1, INPUT);
     pinMode(ENCA2, INPUT);
     pinMode(ENCB1, INPUT);
     pinMode(ENCB2, INPUT);
 
-    // Attach interrupts for encoders
-    attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCA1), [](){ /* encoder logic */ }, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCB1), [](){ /* encoder logic */ }, CHANGE);
 
-    // Start serial monitor
     Serial.begin(115200);
 
-    // Initial buzzer signal
-    buzz(1);
+    initializeFloodFill();
+    Serial.println("Flood fill initialized.");
+    printMaze();
+
+    buzz(1); // Initial buzz to indicate startup
 }
 
 void loop() {
-    // Read sensor values and print them to the serial monitor
-    int frontValue = analogRead(IR_SENSOR_FRONT);
-    int leftValue = analogRead(IR_SENSOR_LEFT);
-    int rightValue = analogRead(IR_SENSOR_RIGHT);
+    while (!(currentRow == goalRow && currentCol == goalCol)) {
+        updateMazeWalls(currentRow, currentCol);
+        moveMicromouse();
+        printMaze();
+        delay(100);
+    }
+    Serial.println("Goal reached!");
+    buzz(2); // Indicate goal reached
+    while (1); // Stop the loop
+}
 
-    Serial.print("Left : ");
-    Serial.print(leftValue);
-    Serial.print(" | Front : ");
-    Serial.print(frontValue);
-    Serial.print(" | Right : ");
-    Serial.println(rightValue);
-
-    // Left hand wall-following logic
-    if (isWallLeft()) {
-        if (isWallFront()) {
-            // Turn right if wall is in front and on the left
-            Serial.println("Wall detected on front and left. Turning right...");
-            turnRightBlocking(670);
-        } else {
-            // Move forward if no wall in front but wall on left
-            Serial.println("Wall detected on left. Moving forward...");
-            moveForwardBlocking(1800);
+void initializeFloodFill() {
+    for (int i = 0; i < MAZE_ROWS; i++) {
+        for (int j = 0; j < MAZE_COLS; j++) {
+            maze[i][j] = abs(goalRow - i) + abs(goalCol - j);
         }
-    } else {
-        // Turn left if no wall on the left
-        Serial.println("No wall on left. Turning left...");
-        turnLeftBlocking(670);
+    }
+}
+
+void updateMazeWalls(int row, int col) {
+    if (isWallFront() && row > 0) maze[row - 1][col] = -1;
+    if (isWallLeft() && col > 0) maze[row][col - 1] = -1;
+    if (isWallRight() && col < MAZE_COLS - 1) maze[row][col + 1] = -1;
+}
+
+void moveMicromouse() {
+    int nextRow = currentRow;
+    int nextCol = currentCol;
+    int minDistance = maze[currentRow][currentCol];
+
+    if (currentRow > 0 && maze[currentRow - 1][currentCol] >= 0 && maze[currentRow - 1][currentCol] < minDistance) {
+        nextRow = currentRow - 1;
+        nextCol = currentCol;
+        minDistance = maze[currentRow - 1][currentCol];
+    }
+    if (currentRow < MAZE_ROWS - 1 && maze[currentRow + 1][currentCol] >= 0 && maze[currentRow + 1][currentCol] < minDistance) {
+        nextRow = currentRow + 1;
+        nextCol = currentCol;
+        minDistance = maze[currentRow + 1][currentCol];
+    }
+    if (currentCol > 0 && maze[currentRow][currentCol - 1] >= 0 && maze[currentRow][currentCol - 1] < minDistance) {
+        nextRow = currentRow;
+        nextCol = currentCol - 1;
+        minDistance = maze[currentRow][currentCol - 1];
+    }
+    if (currentCol < MAZE_COLS - 1 && maze[currentRow][currentCol + 1] >= 0 && maze[currentRow][currentCol + 1] < minDistance) {
+        nextRow = currentRow;
+        nextCol = currentCol + 1;
+        minDistance = maze[currentRow][currentCol + 1];
     }
 
-    delay(100); // Small delay for stability
+    if (nextRow < currentRow) turnLeftBlocking(180);
+    else if (nextRow > currentRow) turnRightBlocking(180);
+    else if (nextCol > currentCol) moveForwardBlocking(180);
+    else if (nextCol < currentCol) turnLeftBlocking(180);
+
+    currentRow = nextRow;
+    currentCol = nextCol;
 }
 
 bool isWallFront() {
@@ -133,13 +165,10 @@ void moveForwardBlocking(int steps) {
 
     while (posA < targetPosA || posB < targetPosB) {
         if (isWallFront()) {
-            Serial.println("Front wall detected while moving forward. Adjusting...");
             stopMotors();
             return;
         }
-        printMotorPositions();
     }
-
     stopMotors();
 }
 
@@ -152,13 +181,7 @@ void turnLeftBlocking(int steps) {
     setMotorSpeed(1, -100);
     setMotorSpeed(2, 100);
 
-    while (posA > targetPosA || posB < targetPosB) {
-        if (isWallFront()) {
-            Serial.println("Front wall detected while turning left. Continuing turn...");
-        }
-        printMotorPositions();
-    }
-
+    while (posA > targetPosA || posB < targetPosB);
     stopMotors();
 }
 
@@ -171,82 +194,36 @@ void turnRightBlocking(int steps) {
     setMotorSpeed(1, 100);
     setMotorSpeed(2, -100);
 
-    while (posA < targetPosA || posB > targetPosB) {
-        if (isWallFront()) {
-            Serial.println("Front wall detected while turning right. Continuing turn...");
-        }
-        printMotorPositions();
-    }
-
+    while (posA < targetPosA || posB > targetPosB);
     stopMotors();
 }
 
 void stopMotors() {
     setMotorSpeed(1, 0);
     setMotorSpeed(2, 0);
-    printMotorPositions();
 }
 
 void setMotorSpeed(int motor, int speed) {
-    if (speed > 0) {
-        if (motor == 1) {
-            digitalWrite(MOTOR1_IN1, HIGH);
-            digitalWrite(MOTOR1_IN2, LOW);
-            analogWrite(PWM_MOTOR1, speed);
-        } else if (motor == 2) {
-            digitalWrite(MOTOR2_IN3, HIGH);
-            digitalWrite(MOTOR2_IN4, LOW);
-            analogWrite(PWM_MOTOR2, speed);
+    if (motor == 1) {
+        digitalWrite(MOTOR1_IN1, speed > 0);
+        digitalWrite(MOTOR1_IN2, speed <= 0);
+        analogWrite(PWM_MOTOR1, abs(speed));
+    } else if (motor == 2) {
+        digitalWrite(MOTOR2_IN3, speed > 0);
+        digitalWrite(MOTOR2_IN4, speed <= 0);
+        analogWrite(PWM_MOTOR2, abs(speed));
+    }
+}
+
+void printMaze() {
+    for (int i = 0; i < MAZE_ROWS; i++) {
+        for (int j = 0; j < MAZE_COLS; j++) {
+            Serial.print(maze[i][j]);
+            Serial.print(" ");
         }
-    } else {
-        speed = abs(speed);
-        if (motor == 1) {
-            digitalWrite(MOTOR1_IN1, LOW);
-            digitalWrite(MOTOR1_IN2, HIGH);
-            analogWrite(PWM_MOTOR1, speed);
-        } else if (motor == 2) {
-            digitalWrite(MOTOR2_IN3, LOW);
-            digitalWrite(MOTOR2_IN4, HIGH);
-            analogWrite(PWM_MOTOR2, speed);
-        }
+        Serial.println();
     }
-}
-
-void IRAM_ATTR updateEncoderA() {
-    int MSB = digitalRead(ENCA1);
-    int LSB = digitalRead(ENCA2);
-    int encoded = (MSB << 1) | LSB;
-    int sum = (lastEncodedA << 2) | encoded;
-
-    if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
-        posA++;
-    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
-        posA--;
-    }
-
-    lastEncodedA = encoded;
-}
-
-void IRAM_ATTR updateEncoderB() {
-    int MSB = digitalRead(ENCB1);
-    int LSB = digitalRead(ENCB2);
-    int encoded = (MSB << 1) | LSB;
-    int sum = (lastEncodedB << 2) | encoded;
-
-    if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
-        posB--;
-    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
-        posB++;
-    }
-
-    lastEncodedB = encoded;
-}
-
-void printMotorPositions() {
-    Serial.print("Motor A Position: ");
-    Serial.print(posA);
-    Serial.print(" | Motor B Position: ");
-    Serial.println(posB);
+    Serial.println();
 }
 
 void buzz(int no) {
