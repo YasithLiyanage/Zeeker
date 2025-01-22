@@ -83,14 +83,14 @@ void setup() {
 
 void loop() {
     while (!(currentRow == goalRow && currentCol == goalCol)) {
-        updateMazeWalls(currentRow, currentCol);
-        moveMicromouse();
-        printMaze();
-        delay(100);
+        updateMazeWalls(currentRow, currentCol); // Update walls in the maze
+        moveMicromouse();                       // Move based on flood-fill
+        printMaze();                            // Debugging: Print the maze values
+        delay(100);                             // Small delay for stability
     }
     Serial.println("Goal reached!");
-    buzz(2); // Indicate goal reached
-    while (1); // Stop the loop
+    buzz(2); // Indicate the goal is reached
+    while (1); // Stop the robot
 }
 
 void initializeFloodFill() {
@@ -112,32 +112,52 @@ void moveMicromouse() {
     int nextCol = currentCol;
     int minDistance = maze[currentRow][currentCol];
 
+    // Check neighboring cells and find the smallest flood-fill value
     if (currentRow > 0 && maze[currentRow - 1][currentCol] >= 0 && maze[currentRow - 1][currentCol] < minDistance) {
-        nextRow = currentRow - 1;
+        nextRow = currentRow - 1; // Move up
         nextCol = currentCol;
         minDistance = maze[currentRow - 1][currentCol];
     }
     if (currentRow < MAZE_ROWS - 1 && maze[currentRow + 1][currentCol] >= 0 && maze[currentRow + 1][currentCol] < minDistance) {
-        nextRow = currentRow + 1;
+        nextRow = currentRow + 1; // Move down
         nextCol = currentCol;
         minDistance = maze[currentRow + 1][currentCol];
     }
     if (currentCol > 0 && maze[currentRow][currentCol - 1] >= 0 && maze[currentRow][currentCol - 1] < minDistance) {
         nextRow = currentRow;
-        nextCol = currentCol - 1;
+        nextCol = currentCol - 1; // Move left
         minDistance = maze[currentRow][currentCol - 1];
     }
     if (currentCol < MAZE_COLS - 1 && maze[currentRow][currentCol + 1] >= 0 && maze[currentRow][currentCol + 1] < minDistance) {
         nextRow = currentRow;
-        nextCol = currentCol + 1;
+        nextCol = currentCol + 1; // Move right
         minDistance = maze[currentRow][currentCol + 1];
     }
 
-    if (nextRow < currentRow) turnLeftBlocking(180);
-    else if (nextRow > currentRow) turnRightBlocking(180);
-    else if (nextCol > currentCol) moveForwardBlocking(180);
-    else if (nextCol < currentCol) turnLeftBlocking(180);
+    // Determine the movement direction
+    if (nextRow < currentRow) {
+        // Move up
+        Serial.println("Moving up...");
+        moveForwardBlocking(1800); // Move one cell forward
+    } else if (nextRow > currentRow) {
+        // Move down
+        Serial.println("Moving down...");
+        turnRightBlocking(670);  // Turn 180 degrees
+        turnRightBlocking(670);
+        moveForwardBlocking(1800);
+    } else if (nextCol > currentCol) {
+        // Move right
+        Serial.println("Moving right...");
+        turnRightBlocking(670);  // Turn 90 degrees
+        moveForwardBlocking(1800);
+    } else if (nextCol < currentCol) {
+        // Move left
+        Serial.println("Moving left...");
+        turnLeftBlocking(670);   // Turn 90 degrees
+        moveForwardBlocking(1800);
+    }
 
+    // Update the current position after moving
     currentRow = nextRow;
     currentCol = nextCol;
 }
