@@ -1,0 +1,60 @@
+#include <Wire.h>
+#include "Adafruit_VL6180X.h"
+
+#define SDA_PIN 21  
+#define SCL_PIN 22  
+#define SHUT_PIN 25  // Shutdown pin (change if needed)
+
+Adafruit_VL6180X sensor = Adafruit_VL6180X();
+
+void scanI2C() {
+    Serial.println("\n🔍 Scanning I2C Bus...");
+    byte count = 0;
+    for (byte i = 1; i < 127; i++) {
+        Wire.beginTransmission(i);
+        if (Wire.endTransmission() == 0) {
+            Serial.print("✅ Found I2C device at 0x");
+            Serial.println(i, HEX);
+            count++;
+            delay(10);
+        }
+    }
+    if (count == 0) Serial.println("❌ No I2C devices found!");
+    Serial.println();
+}
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(SDA_PIN, SCL_PIN);
+    Wire.setClock(50000);
+
+    pinMode(SHUT_PIN, OUTPUT);
+    digitalWrite(SHUT_PIN, LOW);  // Ensure sensor is OFF
+    delay(100);
+    digitalWrite(SHUT_PIN, HIGH); // Power sensor ON
+    delay(200);
+
+    Serial.println("\n🔧 Initializing VL6180X...");
+    if (!sensor.begin()) {
+        Serial.println("❌ VL6180X Sensor NOT Found! Check Wiring.");
+        while (1);  // Halt execution if sensor not found
+    }
+
+    Serial.println("🚀 VL6180X Sensor Ready!");
+    scanI2C();
+}
+
+void loop() {
+    int distance = sensor.readRange();
+    uint8_t status = sensor.readRangeStatus();
+
+    if (status == VL6180X_ERROR_NONE) {
+        Serial.print("✅ Distance: ");
+        Serial.print(distance);
+        Serial.println(" mm");
+    } else {
+        Serial.println("⚠️ Sensor Error! Check I2C and Power.");
+    }
+
+    delay(10);
+}
