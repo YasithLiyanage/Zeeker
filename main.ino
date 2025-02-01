@@ -1,14 +1,23 @@
-#define IR_SENSOR_FRONT 33   // Pin for the front IR sensor
-#define IR_SENSOR_LEFT 32   // Pin for the left IR sensor
-#define IR_SENSOR_RIGHT 25   // Pin for the right IR sensor
+//pins are CORRECT !
+
+#include <Wire.h>
+#include "Adafruit_VL6180X.h"
+
+#define SDA_PIN 21  
+#define SCL_PIN 22  
+
+// Shutdown pins for 3 sensors
+#define SHUT_PIN_0 25  // Sensor 0 (Front)
+#define SHUT_PIN_1 26  // Sensor 1 (Left)
+#define SHUT_PIN_2 27  // Sensor 2 (Right)
 
 // Pin Definitions
 #define PWM_MOTOR1 4
 #define PWM_MOTOR2 5
 #define MOTOR1_IN1 23
-#define MOTOR1_IN2 22
+#define MOTOR1_IN2 33
 #define MOTOR2_IN3 15
-#define MOTOR2_IN4 21
+#define MOTOR2_IN4 32
 
 #define ENCA1 16  // Encoder A channel A pin
 #define ENCA2 17  // Encoder A channel B pin
