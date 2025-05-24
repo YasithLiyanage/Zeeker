@@ -1,66 +1,98 @@
 #include <Wire.h>
 #include "Adafruit_VL6180X.h"
 
-#define SDA_PIN 21  
-#define SCL_PIN 22  
+#define SDA_PIN 33  
+#define SCL_PIN 32  
 
-// Shutdown pins for 3 sensors
-#define SHUT_PIN_0 25  // Sensor 0 (Front)
-#define SHUT_PIN_1 26  // Sensor 1 (Left)
-#define SHUT_PIN_2 27  // Sensor 2 (Right)
+#define SHUT_PIN_0 25  // Left
+#define SHUT_PIN_1 26  // Front
+#define SHUT_PIN_2 27  // Right
 
 Adafruit_VL6180X sensor;
 
 void setup() {
-    Serial.begin(115200);
-    Wire.begin(SDA_PIN, SCL_PIN);
-    Wire.setClock(100000);  // Increase I2C speed
+  Serial.begin(115200);
+  buzz(1);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);  // Optional speed boost
 
-    pinMode(SHUT_PIN_0, OUTPUT);
-    pinMode(SHUT_PIN_1, OUTPUT);
-    pinMode(SHUT_PIN_2, OUTPUT);
+  pinMode(SHUT_PIN_0, OUTPUT);
+  pinMode(SHUT_PIN_1, OUTPUT);
+  pinMode(SHUT_PIN_2, OUTPUT);
 
-    // Ensure all sensors are OFF before starting
-    digitalWrite(SHUT_PIN_0, LOW);
-    digitalWrite(SHUT_PIN_1, LOW);
-    digitalWrite(SHUT_PIN_2, LOW);
-    delay(50);
+  // Power down all
+  digitalWrite(SHUT_PIN_0, LOW);
+  digitalWrite(SHUT_PIN_1, LOW);
+  digitalWrite(SHUT_PIN_2, LOW);
+  delay(50);
 }
 
 bool initSensor(int shutPin) {
+  digitalWrite(shutPin, HIGH);
+  delay(10);  // Power-up time
+
+  return sensor.begin();
+}
+
+int readSensor(int shutPin, int off1, int off2) {
+  // Turn off the other two sensors
+  digitalWrite(off1, LOW);
+  digitalWrite(off2, LOW);
+  delay(2);
+
+  // Re-init I2C sensor
+  if (!initSensor(shutPin)) {
     digitalWrite(shutPin, LOW);
-    delayMicroseconds(500);  // Reduce delay for speed
-    digitalWrite(shutPin, HIGH);
-    delayMicroseconds(1000);
-    return sensor.begin();
+    return 255; // Sensor failed to init
+  }
+
+  delay(5);  // Allow sensor to stabilize
+
+  uint8_t range = sensor.readRange();
+  uint8_t status = sensor.readRangeStatus();
+
+  digitalWrite(shutPin, LOW);  // Turn it off after reading
+
+  if (status == VL6180X_ERROR_NONE) {
+    return range;  // Valid distance
+  } else {
+    return 255;    // Invalid reading
+  }
 }
 
 void loop() {
-    int dist0 = -1, dist1 = -1, dist2 = -1;
+  int dist0 = readSensor(SHUT_PIN_0, SHUT_PIN_1, SHUT_PIN_2); // Left
+  int dist1 = readSensor(SHUT_PIN_1, SHUT_PIN_0, SHUT_PIN_2); // Front
+  int dist2 = readSensor(SHUT_PIN_2, SHUT_PIN_0, SHUT_PIN_1); // Right
 
-    // Read Sensor 0 (Front)
-    digitalWrite(SHUT_PIN_1, LOW);
-    digitalWrite(SHUT_PIN_2, LOW);
-    delayMicroseconds(200);
-    if (initSensor(SHUT_PIN_0)) dist0 = sensor.readRange();
-    digitalWrite(SHUT_PIN_0, LOW);
-    
-    // Read Sensor 1 (Left)
-    digitalWrite(SHUT_PIN_0, LOW);
-    digitalWrite(SHUT_PIN_2, LOW);
-    delayMicroseconds(200);
-    if (initSensor(SHUT_PIN_1)) dist1 = sensor.readRange();
-    digitalWrite(SHUT_PIN_1, LOW);
+  Serial.print("Left: ");
+  Serial.print(dist0);
 
-    // Read Sensor 2 (Right)
-    digitalWrite(SHUT_PIN_0, LOW);
-    digitalWrite(SHUT_PIN_1, LOW);
-    delayMicroseconds(200);
-    if (initSensor(SHUT_PIN_2)) dist2 = sensor.readRange();
-    digitalWrite(SHUT_PIN_2, LOW);
+  Serial.print(" mm, Front: ");
+  Serial.print(dist1);
 
-    // Print distances in one line
-    Serial.print(dist0); Serial.print(" ");
-    Serial.print(dist1); Serial.print(" ");
-    Serial.println(dist2);
+  Serial.print(" mm, Right: ");
+  Serial.print(dist2);
+  Serial.println(" mm");
+
+  delay(150);
 }
+
+
+void buzz(int no) {
+  switch (no) {
+    case 1:
+      tone(2, 1500, 100);
+      delay(200);
+      tone(2, 1000, 100);
+      delay(100);
+      break;
+    case 2:
+      tone(2, 1000, 100);
+      delay(150);
+      tone(2, 1000, 100);
+      delay(150);
+      break;
+  }
+}
+
