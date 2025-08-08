@@ -1,276 +1,211 @@
-//pins are CORRECT !
 
 #include <Wire.h>
+#include <MPU9250_asukiaaa.h>
 #include "Adafruit_VL6180X.h"
 
-#define SDA_PIN 21  
-#define SCL_PIN 22  
-
-// Shutdown pins for 3 sensors
-#define SHUT_PIN_0 25  // Sensor 0 (Front)
-#define SHUT_PIN_1 26  // Sensor 1 (Left)
-#define SHUT_PIN_2 27  // Sensor 2 (Right)
-
-// Pin Definitions
 #define PWM_MOTOR1 4
 #define PWM_MOTOR2 5
-#define MOTOR1_IN1 23
-#define MOTOR1_IN2 33
-#define MOTOR2_IN3 15
-#define MOTOR2_IN4 32
+#define MOTOR1_IN1 15
+#define MOTOR1_IN2 21
+#define MOTOR2_IN1 22
+#define MOTOR2_IN2 23
 
-#define ENCA1 16  // Encoder A channel A pin
-#define ENCA2 17  // Encoder A channel B pin
-#define ENCB1 18  // Encoder B channel A pin
-#define ENCB2 19  // Encoder B channel B pin
+#define ENCA1 16
+#define ENCA2 17
+#define ENCB1 18
+#define ENCB2 19
 
-// Encoder variables
-volatile int posA = 0;  // Position for encoder A
-volatile int posB = 0;  // Position for encoder B
-volatile int lastEncodedA = 0;  // Last encoded value for encoder A
-volatile int lastEncodedB = 0;  // Last encoded value for encoder B
+#define SDA_PIN 25
+#define SCL_PIN 26
 
-int targetPosA = 0; // Target position for encoder A
-int targetPosB = 0; // Target position for encoder B
+// ===== ToF =====
+#define MUX_ADDR 0x70
+#define NUM_SENSORS 5
+const char* TOF_NAME[NUM_SENSORS] = {"Left", "ALeft 45°", "Front", "ARight 45°", "Right"};
+const uint8_t TOF_CH[NUM_SENSORS] = {0, 1, 2, 3, 4};
+Adafruit_VL6180X tof;
 
-// Thresholds for IR sensors
-int frontThreshold = 3000; // Adjust this threshold based on your testing
-int leftThreshold = 3900;  // Adjust this threshold based on your testing
-int rightThreshold = 3900; // Adjust this threshold based on your testing
+// ===== IMU =====
+MPU9250_asukiaaa mpu;
+float yawAngle = 0.0;
+unsigned long lastIMUms = 0;
 
-// Function Prototypes
-void IRAM_ATTR updateEncoderA();
-void IRAM_ATTR updateEncoderB();
-void turnLeftBlocking(int steps);
-void turnRightBlocking(int steps);
-void moveForwardBlocking(int steps);
-void stopMotors();
-void setMotorSpeed(int motor, int speed);
-void printMotorPositions();
-void buzz(int no);
+// ===== Encoder state =====
+volatile long encLeftCount = 0;
+volatile long encRightCount = 0;
 
-bool isWallFront();
-bool isWallLeft();
-bool isWallRight();
+// ===== Helpers =====
+void selectMuxChannel(uint8_t channel) {
+  Wire.beginTransmission(MUX_ADDR);
+  Wire.write(1 << channel);
+  Wire.endTransmission();
+}
+
+bool tofBeginOnChannel(uint8_t ch) {
+  selectMuxChannel(ch);
+  delay(3);
+  return tof.begin();
+}
+
+int16_t readToF(uint8_t ch) {
+  selectMuxChannel(ch);
+  delay(2);
+  uint8_t range = tof.readRange();
+  uint8_t status = tof.readRangeStatus();
+  return (status == VL6180X_ERROR_NONE) ? (int16_t)range : -1;
+}
+
+// ===== Encoder ISRs =====
+void IRAM_ATTR isrLeftA() {
+  int a = digitalRead(ENCA1);
+  int b = digitalRead(ENCA2);
+  if (a == b) encLeftCount++; else encLeftCount--;
+}
+
+void IRAM_ATTR isrRightA() {
+  int a = digitalRead(ENCB1);
+  int b = digitalRead(ENCB2);
+  if (a == b) encRightCount++; else encRightCount--;
+}
+
+// ===== Motor helpers =====
+void motorLeft(int speed) {
+  speed = constrain(speed, -255, 255);
+  if (speed >= 0) {
+    digitalWrite(MOTOR1_IN1, HIGH);
+    digitalWrite(MOTOR1_IN2, LOW);
+    analogWrite(PWM_MOTOR1, speed);
+  } else {
+    digitalWrite(MOTOR1_IN1, LOW);
+    digitalWrite(MOTOR1_IN2, HIGH);
+    analogWrite(PWM_MOTOR1, -speed);
+  }
+}
+
+void motorRight(int speed) {
+  speed = constrain(speed, -255, 255);
+  if (speed >= 0) {
+    digitalWrite(MOTOR2_IN1, HIGH);
+    digitalWrite(MOTOR2_IN2, LOW);
+    analogWrite(PWM_MOTOR2, speed);
+  } else {
+    digitalWrite(MOTOR2_IN1, LOW);
+    digitalWrite(MOTOR2_IN2, HIGH);
+    analogWrite(PWM_MOTOR2, -speed);
+  }
+}
+
+void motorsStop() {
+  analogWrite(PWM_MOTOR1, 0);
+  analogWrite(PWM_MOTOR2, 0);
+  digitalWrite(MOTOR1_IN1, LOW);
+  digitalWrite(MOTOR1_IN2, LOW);
+  digitalWrite(MOTOR2_IN1, LOW);
+  digitalWrite(MOTOR2_IN2, LOW);
+}
+
+// ===== IMU update =====
+void imuUpdateYaw() {
+  mpu.gyroUpdate();
+  float gz = mpu.gyroZ();
+  unsigned long now = millis();
+  float dt = (now - lastIMUms) / 1000.0;
+  lastIMUms = now;
+  yawAngle += gz * dt;
+}
+
+// ===== Tests =====
+void testMotorsAndEncoders() {
+  Serial.println("\n[Motor + Encoder Test]");
+  encLeftCount = encRightCount = 0;
+  int speed = 180;
+
+  unsigned long t0 = millis();
+  Serial.println(" Forward...");
+  motorLeft(speed);
+  motorRight(speed);
+  while (millis() - t0 < 5000) delay(1); // 5s forward
+  motorsStop();
+  Serial.printf(" Counts after FWD: L=%ld  R=%ld\n", encLeftCount, encRightCount);
+
+  delay(500);
+
+  encLeftCount = encRightCount = 0;
+  t0 = millis();
+  Serial.println(" Reverse...");
+  motorLeft(-speed);
+  motorRight(-speed);
+  while (millis() - t0 < 5000) delay(1); // 5s reverse
+  motorsStop();
+  Serial.printf(" Counts after REV: L=%ld  R=%ld\n", encLeftCount, encRightCount);
+}
+
+void testToF() {
+  Serial.println("\n[ToF Sensors Test]");
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    bool ok = tofBeginOnChannel(TOF_CH[i]);
+    Serial.printf(" %s: %s\n", TOF_NAME[i], ok ? "OK" : "NOT FOUND");
+  }
+
+  unsigned long t0 = millis();
+  while (millis() - t0 < 30000) {
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      int16_t d = readToF(TOF_CH[i]);
+      if (d >= 0) Serial.printf("%s=%3d  ", TOF_NAME[i], d);
+      else        Serial.printf("%s=ERR  ", TOF_NAME[i]);
+    }
+    Serial.println();
+    delay(200);
+  }
+}
+
+void testIMU() {
+  Serial.println("\n[IMU Yaw Test]");
+  yawAngle = 0;
+  lastIMUms = millis();
+  unsigned long t0 = millis();
+  while (millis() - t0 < 10000) {
+    imuUpdateYaw();
+    Serial.printf("Yaw = %.2f deg\n", yawAngle);
+    delay(100);
+  }
+}
 
 void setup() {
-    // IR sensors setup
-    pinMode(IR_SENSOR_FRONT, INPUT);
-    pinMode(IR_SENSOR_LEFT, INPUT);
-    pinMode(IR_SENSOR_RIGHT, INPUT);
+  Serial.begin(115200);
+  delay(500);
 
-    // Motor control pins setup
-    pinMode(MOTOR1_IN1, OUTPUT);
-    pinMode(MOTOR1_IN2, OUTPUT);
-    pinMode(MOTOR2_IN3, OUTPUT);
-    pinMode(MOTOR2_IN4, OUTPUT);
-    pinMode(PWM_MOTOR1, OUTPUT);
-    pinMode(PWM_MOTOR2, OUTPUT);
+  pinMode(MOTOR1_IN1, OUTPUT);
+  pinMode(MOTOR1_IN2, OUTPUT);
+  pinMode(MOTOR2_IN1, OUTPUT);
+  pinMode(MOTOR2_IN2, OUTPUT);
+  motorsStop();
 
-    // Encoder pins setup
-    pinMode(ENCA1, INPUT);
-    pinMode(ENCA2, INPUT);
-    pinMode(ENCB1, INPUT);
-    pinMode(ENCB2, INPUT);
+  pinMode(ENCA1, INPUT_PULLUP);
+  pinMode(ENCA2, INPUT_PULLUP);
+  pinMode(ENCB1, INPUT_PULLUP);
+  pinMode(ENCB2, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCA1), isrLeftA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCB1), isrRightA, CHANGE);
 
-    // Attach interrupts for encoders
-    attachInterrupt(digitalPinToInterrupt(ENCA1), updateEncoderA, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCA2), updateEncoderA, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCB1), updateEncoderB, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCB2), updateEncoderB, CHANGE);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(400000);
 
-    // Start serial monitor
-    Serial.begin(115200);
+  mpu.setWire(&Wire);
+  mpu.beginGyro();
+  mpu.beginAccel();
+  lastIMUms = millis();
 
-    // Initial buzzer signal
-    buzz(1);
+  Serial.println("=== Auto Hardware Check Starting (10s each) ===");
+
+  // Run all tests automatically
+  testMotorsAndEncoders();
+  testToF();
+  testIMU();
+
+  Serial.println("=== Tests Complete ===");
 }
 
 void loop() {
-    // Read sensor values and print them to the serial monitor
-    int frontValue = analogRead(IR_SENSOR_FRONT);
-    int leftValue = analogRead(IR_SENSOR_LEFT);
-    int rightValue = analogRead(IR_SENSOR_RIGHT);
 
-    Serial.print("Left : ");
-    Serial.print(leftValue);
-    Serial.print(" | Front : ");
-    Serial.print(frontValue);
-    Serial.print(" | Right : ");
-    Serial.println(rightValue);
-
-    // Left hand wall-following logic
-    if (isWallLeft()) {
-        if (isWallFront()) {
-            // Turn right if wall is in front and on the left
-            Serial.println("Wall detected on front and left. Turning right...");
-            turnRightBlocking(670);
-        } else {
-            // Move forward if no wall in front but wall on left
-            Serial.println("Wall detected on left. Moving forward...");
-            moveForwardBlocking(1800);
-        }
-    } else {
-        // Turn left if no wall on the left
-        Serial.println("No wall on left. Turning left...");
-        turnLeftBlocking(670);
-    }
-
-    delay(100); // Small delay for stability
-}
-
-bool isWallFront() {
-    return analogRead(IR_SENSOR_FRONT) < frontThreshold;
-}
-
-bool isWallLeft() {
-    return analogRead(IR_SENSOR_LEFT) < leftThreshold;
-}
-
-bool isWallRight() {
-    return analogRead(IR_SENSOR_RIGHT) < rightThreshold;
-}
-
-void moveForwardBlocking(int steps) {
-    posA = 0;
-    posB = 0;
-    targetPosA = steps;
-    targetPosB = steps;
-
-    setMotorSpeed(1, 100);
-    setMotorSpeed(2, 100);
-
-    while (posA < targetPosA || posB < targetPosB) {
-        if (isWallFront()) {
-            Serial.println("Front wall detected while moving forward. Adjusting...");
-            stopMotors();
-            return;
-        }
-        printMotorPositions();
-    }
-
-    stopMotors();
-}
-
-void turnLeftBlocking(int steps) {
-    posA = 0;
-    posB = 0;
-    targetPosA = -steps;
-    targetPosB = steps;
-
-    setMotorSpeed(1, -100);
-    setMotorSpeed(2, 100);
-
-    while (posA > targetPosA || posB < targetPosB) {
-        if (isWallFront()) {
-            Serial.println("Front wall detected while turning left. Continuing turn...");
-        }
-        printMotorPositions();
-    }
-
-    stopMotors();
-}
-
-void turnRightBlocking(int steps) {
-    posA = 0;
-    posB = 0;
-    targetPosA = steps;
-    targetPosB = -steps;
-
-    setMotorSpeed(1, 100);
-    setMotorSpeed(2, -100);
-
-    while (posA < targetPosA || posB > targetPosB) {
-        if (isWallFront()) {
-            Serial.println("Front wall detected while turning right. Continuing turn...");
-        }
-        printMotorPositions();
-    }
-
-    stopMotors();
-}
-
-void stopMotors() {
-    setMotorSpeed(1, 0);
-    setMotorSpeed(2, 0);
-    printMotorPositions();
-}
-
-void setMotorSpeed(int motor, int speed) {
-    if (speed > 0) {
-        if (motor == 1) {
-            digitalWrite(MOTOR1_IN1, HIGH);
-            digitalWrite(MOTOR1_IN2, LOW);
-            analogWrite(PWM_MOTOR1, speed);
-        } else if (motor == 2) {
-            digitalWrite(MOTOR2_IN3, HIGH);
-            digitalWrite(MOTOR2_IN4, LOW);
-            analogWrite(PWM_MOTOR2, speed);
-        }
-    } else {
-        speed = abs(speed);
-        if (motor == 1) {
-            digitalWrite(MOTOR1_IN1, LOW);
-            digitalWrite(MOTOR1_IN2, HIGH);
-            analogWrite(PWM_MOTOR1, speed);
-        } else if (motor == 2) {
-            digitalWrite(MOTOR2_IN3, LOW);
-            digitalWrite(MOTOR2_IN4, HIGH);
-            analogWrite(PWM_MOTOR2, speed);
-        }
-    }
-}
-
-void IRAM_ATTR updateEncoderA() {
-    int MSB = digitalRead(ENCA1);
-    int LSB = digitalRead(ENCA2);
-    int encoded = (MSB << 1) | LSB;
-    int sum = (lastEncodedA << 2) | encoded;
-
-    if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
-        posA++;
-    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
-        posA--;
-    }
-
-    lastEncodedA = encoded;
-}
-
-void IRAM_ATTR updateEncoderB() {
-    int MSB = digitalRead(ENCB1);
-    int LSB = digitalRead(ENCB2);
-    int encoded = (MSB << 1) | LSB;
-    int sum = (lastEncodedB << 2) | encoded;
-
-    if (sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) {
-        posB--;
-    } else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
-        posB++;
-    }
-
-    lastEncodedB = encoded;
-}
-
-void printMotorPositions() {
-    Serial.print("Motor A Position: ");
-    Serial.print(posA);
-    Serial.print(" | Motor B Position: ");
-    Serial.println(posB);
-}
-
-void buzz(int no) {
-    switch (no) {
-        case 1:
-            tone(2, 1500, 100);
-            delay(200);
-            tone(2, 1000, 100);
-            delay(100);
-            break;
-        case 2:
-            tone(2, 1000, 100);
-            delay(150);
-            tone(2, 1000, 100);
-            delay(150);
-            break;
-    }
 }
