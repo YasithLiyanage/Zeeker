@@ -16,7 +16,7 @@
 // === ToF MUX channels ===
 #define MUX_ADDR   0x70
 #define CH_LEFT    0
-#define CH_RIGHT   1
+#define CH_RIGHT   4
 #define CH_FRONT   2
 
 Adafruit_VL6180X tof;
@@ -31,11 +31,11 @@ Cal CAL[NUM_SENSORS] = {
   /* ALeft45  */ {1.00f,   0.0f},  // unused
   /* FRONT    */ {1.00f, -35.0f},
   /* ARight45 */ {1.00f,   0.0f},  // unused
-  /* RIGHT    */ {1.00f, -73.0f}
+  /* RIGHT    */ {1.00f, -28.0f}
 };
 
 // === Distance / logic thresholds (mm) ===
-#define STOP_DIST         35    // full stop here
+#define STOP_DIST         45    // full stop here
 #define SLOW_DIST        100    // start slowing here
 #define DESIRED_CENTER    40    // your chosen offset from each side
 #define NO_WALL_MM       100    // > this => treat as NO WALL (prevents seeing across openings)
@@ -95,17 +95,13 @@ float edgeMM_withCutoff(SensorId sid, uint8_t ch) {
   int raw = tofRaw(ch);
   if (raw < 0) return -1;
 
-  // --- per-sensor raw inversion for RIGHT ---
-  if (sid == SID_RIGHT) {
-    const int RAW_MAX = 200; // VL6180X practical limit
-    raw = RAW_MAX - raw;     // invert: closer => smaller mm
-  }
-
+  // No per-sensor inversion anymore.
   float mm = CAL[sid].a * raw + CAL[sid].b;
   if (mm < 0) mm = 0;
-  if (mm > NO_WALL_MM) return -1;   // opening detected -> treat as NO WALL
+  if (mm > NO_WALL_MM) return -1;   // treat as opening / no wall
   return mm;
 }
+
 
 float leftMM()  { return edgeMM_withCutoff(SID_LEFT,  CH_LEFT ); }
 float rightMM() { return edgeMM_withCutoff(SID_RIGHT, CH_RIGHT); }
@@ -145,7 +141,7 @@ void updatePresence(float val, bool& present, int& cntP, int& cntL){
 
 // ---------- Drive ----------
 void driveStraight(float baseSpeed, float headingErrDeg){
-  float turn = headingErrDeg * 0.5f;       // P gain (deg -> PWM)
+  float turn = headingErrDeg * 1.0f;       // P gain (deg -> PWM)
   if (turn > 40) turn = 40; if (turn < -40) turn = -40;
   int l = (int)(baseSpeed - turn);
   int r = (int)(baseSpeed + turn);
