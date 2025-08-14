@@ -35,24 +35,24 @@ Cal CAL[NUM_SENSORS] = {
 };
 
 // === Distance / logic thresholds (mm) ===
-#define STOP_DIST         45    // full stop here
-#define SLOW_DIST        100    // start slowing here
-#define DESIRED_CENTER    40    // your chosen offset from each side
-#define NO_WALL_MM       100    // > this => treat as NO WALL (prevents seeing across openings)
+#define STOP_DIST         45
+#define SLOW_DIST        100
+#define DESIRED_CENTER    40
+#define NO_WALL_MM       100
 
-// === Presence debounce (consecutive samples) ===
-#define PRESENT_N          3    // need N valid in a row to mark present
-#define LOST_N             3    // need N invalid in a row to mark lost
+// === Presence debounce ===
+#define PRESENT_N          3
+#define LOST_N             3
 
 // === Speed & control ===
 #define MAX_SPEED          100
 #define MIN_SPEED          70
 
-// Trim & polarity (tune if it veers)
+// Trim & polarity
 #define INVERT_LEFT    false
 #define INVERT_RIGHT   false
-int TRIM_LEFT  = 0;     // + makes left faster
-int TRIM_RIGHT = 10;    // + makes right faster (increase if it pulls left)
+int TRIM_LEFT  = 0;
+int TRIM_RIGHT = 10;
 
 // === IMU state ===
 float yaw = 0.0f, gyroBias = 0.0f, targetYaw = 0.0f;
@@ -94,14 +94,11 @@ int tofRaw(uint8_t ch){
 float edgeMM_withCutoff(SensorId sid, uint8_t ch) {
   int raw = tofRaw(ch);
   if (raw < 0) return -1;
-
-  // No per-sensor inversion anymore.
   float mm = CAL[sid].a * raw + CAL[sid].b;
   if (mm < 0) mm = 0;
-  if (mm > NO_WALL_MM) return -1;   // treat as opening / no wall
+  if (mm > NO_WALL_MM) return -1;
   return mm;
 }
-
 
 float leftMM()  { return edgeMM_withCutoff(SID_LEFT,  CH_LEFT ); }
 float rightMM() { return edgeMM_withCutoff(SID_RIGHT, CH_RIGHT); }
@@ -123,8 +120,20 @@ void imuUpdate(){
   if (yaw < -180) yaw += 360;
 }
 
-// avoid C++20 std::lerp clash
+// ---------- helpers ----------
 static inline float myLerp(float a,float b,float t){ if(t<0)t=0; if(t>1)t=1; return a + (b-a)*t; }
+static inline float angNorm(float a){ while(a>180)a-=360; while(a<-180)a+=360; return a; }
+
+// ---------- Drive ----------
+void driveStraight(float baseSpeed, float headingErrDeg){
+  float turn = headingErrDeg * 1.0f;
+  if (turn > 40) turn = 40; if (turn < -40) turn = -40;
+  int l = (int)(baseSpeed - turn);
+  int r = (int)(baseSpeed + turn);
+  l = constrain(l, 0, 255);
+  r = constrain(r, 0, 255);
+  motorL(l); motorR(r);
+}
 
 // ---------- Presence debounce ----------
 bool L_present=false, R_present=false;
@@ -139,15 +148,32 @@ void updatePresence(float val, bool& present, int& cntP, int& cntL){
   }
 }
 
-// ---------- Drive ----------
-void driveStraight(float baseSpeed, float headingErrDeg){
-  float turn = headingErrDeg * 1.0f;       // P gain (deg -> PWM)
-  if (turn > 40) turn = 40; if (turn < -40) turn = -40;
-  int l = (int)(baseSpeed - turn);
-  int r = (int)(baseSpeed + turn);
-  l = constrain(l, 0, 255);
-  r = constrain(r, 0, 255);
-  motorL(l); motorR(r);
+// ---------- Simple IMU-based turn ----------
+void turn(float deg){
+  // deg > 0 => turn RIGHT (CW), deg < 0 => turn LEFT (CCW)
+  const int SPIN_PWM = 110;
+  const float TOL_DEG = 3.0f;
+  const unsigned long TIMEOUT_MS = 4000;
+  const int TURN_SIGN = +1; // flip to -1 if your robot turns the wrong way
+
+  float target = angNorm(yaw + deg);
+  motorsStop(); delay(20);
+
+  unsigned long t0 = millis();
+  while (millis() - t0 < TIMEOUT_MS) {
+    imuUpdate();
+    float err = angNorm(target - yaw);
+    if (fabsf(err) <= TOL_DEG) break;
+
+    int dir = ((deg >= 0) ? +1 : -1) * TURN_SIGN;
+    motorL(+dir * SPIN_PWM);
+    motorR(-dir * SPIN_PWM);
+    delay(5);
+  }
+
+  motorsStop();
+  delay(100);
+  // targetYaw = yaw; // enable if you want heading hold later
 }
 
 void setup(){
@@ -170,8 +196,8 @@ void setup(){
   lastIMUms = millis();
   imuBias();
   yaw = 0.0f;
-  targetYaw = yaw;  // hold the *current* heading
-  Serial.println("Ready. Debounced side walls, NO_WALL cutoff, single/dual-side control, smooth stop.");
+  targetYaw = yaw;
+  Serial.println("Ready.");
 }
 
 void loop(){
@@ -181,54 +207,56 @@ void loop(){
   float l = leftMM();
   float r = rightMM();
 
-  // Update presence with debounce (prevents grabbing far wall at openings)
+  // Update presence with debounce
   updatePresence(l, L_present, L_cntP, L_cntL);
   updatePresence(r, R_present, R_cntP, R_cntL);
 
   // Smooth speed between SLOW_DIST and STOP_DIST
   float speed = MAX_SPEED;
   if (f > 0 && f < SLOW_DIST){
-    float t = (f - STOP_DIST) / (SLOW_DIST - STOP_DIST); // 0..1
+    float t = (f - STOP_DIST) / (SLOW_DIST - STOP_DIST);
     speed = myLerp(MIN_SPEED, MAX_SPEED, t);
   }
 
-  // Hard stop at STOP_DIST
-  if (f > 0 && f <= STOP_DIST){
+  // --- Front-wall handling and driving ---
+  if (f > 0 && f <= STOP_DIST) {
     motorsStop();
-    Serial.printf("STOP  F=%.1f  L=%.1f(%d/%d)  R=%.1f(%d/%d)\n", f, l, L_present, L_cntP, r, R_present, R_cntP);
-    delay(20);
-    return;
+
+    if (!L_present && R_present) {
+      Serial.println("FRONT BLOCKED: turning LEFT (-90)");
+      turn(-90);
+    } else if (!R_present && L_present) {
+      Serial.println("FRONT BLOCKED: turning RIGHT (+90)");
+      turn(+90);
+    } else if (!L_present && !R_present) {
+      Serial.println("FRONT BLOCKED: both sides open, turning LEFT (-90)");
+      turn(-90);
+    } else {
+      Serial.println("DEAD END: turning 180");
+      turn(180);
+    }
+    return; // done this loop
   }
 
-  // Control logic:
+  // Otherwise, drive as before
   if (L_present && R_present){
-    // Center using both sides
-    float err = (l - DESIRED_CENTER) - (r - DESIRED_CENTER); // l - r
-    float headingErrDeg = -0.5f * err; // steer toward center
+    float err = (l - DESIRED_CENTER) - (r - DESIRED_CENTER);
+    float headingErrDeg = -0.5f * err;
     driveStraight(speed, headingErrDeg);
-    Serial.printf("CENTER L=%.1f R=%.1f F=%.1f  err=%.1f spd=%.0f\n", l, r, f, err, speed);
   }
   else if (L_present && !R_present){
-    // Follow left wall only
-    float errL = l - DESIRED_CENTER;     // <0 => too close to left -> steer right
-    float headingErrDeg = -0.6f * errL;  // single-side gain
+    float errL = l - DESIRED_CENTER;
+    float headingErrDeg = -0.6f * errL;
     driveStraight(speed, headingErrDeg);
-    Serial.printf("LEFT   L=%.1f F=%.1f spd=%.0f\n", l, f, speed);
   }
   else if (!L_present && R_present){
-    // Follow right wall only
-    float errR = r - DESIRED_CENTER;     // <0 => too close to right -> steer left
-    float headingErrDeg = +0.6f * errR;  // single-side gain
+    float errR = r - DESIRED_CENTER;
+    float headingErrDeg = +0.6f * errR;
     driveStraight(speed, headingErrDeg);
-    Serial.printf("RIGHT  R=%.1f F=%.1f spd=%.0f\n", r, f, speed);
   }
   else {
-    // No side walls — hold IMU heading
-    float headingErrDeg = targetYaw - yaw;
-    if (headingErrDeg > 180) headingErrDeg -= 360;
-    if (headingErrDeg < -180) headingErrDeg += 360;
+    float headingErrDeg = angNorm(targetYaw - yaw);
     driveStraight(speed, headingErrDeg);
-    Serial.printf("IMU    yaw=%.2f tgt=%.2f  F=%.1f  spd=%.0f\n", yaw, targetYaw, f, speed);
   }
 
   delay(20);
