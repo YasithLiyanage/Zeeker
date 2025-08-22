@@ -108,7 +108,7 @@ Cal CAL[5] = {
   {1.00f, -42.0f},  // LEFT
   {1.00f,  20.0f},  // ALEFT45
   {1.00f, -35.0f},  // FRONT
-  {1.00f,   0.0f},  // ARIGHT45
+  {1.00f, -10.0f},  // ARIGHT45
   {1.00f, -28.0f}   // RIGHT
 };
 
@@ -118,7 +118,7 @@ Cal CAL[5] = {
 #define FRONT_BLOCK_MM    32    // used for junction decisions (debounced)
 #define FRONT_CLEAR_MM    45
 #define FRONT_SLOW_MM     80
-#define FRONT_STOP_MM     38    // normal stop threshold once committed
+#define FRONT_STOP_MM     40    // normal stop threshold once committed
 #define EMERGENCY_MM      28    // ALWAYS stop if at/under this, any time
 
 // Commit distance into a new cell before we use FRONT_STOP_MM
@@ -127,9 +127,9 @@ Cal CAL[5] = {
 
 // ========== Square-up params ==========
 #define A45_TOL_MM        6
-#define SQUARE_TURN_PWM   50
+#define SQUARE_TURN_PWM   80
 #define SQUARE_MAX_MS     1500
-#define GAP_TOL_MM        4
+#define GAP_TOL_MM        5
 #define NUDGE_PWM         60
 
 // ========== WALL MAPPING ==========
@@ -775,15 +775,15 @@ void turnIMU(float angleDeg, int basePWM=90, int timeout_ms=1800) {
 // ======================================================
 float TICKS_PER_MM_L = 13.56f;   // set after calibration
 float TICKS_PER_MM_R = 13.45f;   // set after calibration
-int   CELL_MM        = 200;
+int   CELL_MM        = 192;
 
 int ONE_CELL_TICKS_L(){ return (int)roundf(TICKS_PER_MM_L * CELL_MM); }
 int ONE_CELL_TICKS_R(){ return (int)roundf(TICKS_PER_MM_R * CELL_MM); }
 
 bool driveOneCell() {
-  const int   BASE_PWM   = 90;
+  const int   BASE_PWM   = 120;
   const float BAL_GAIN   = 0.5f;
-  const int   MIN_PWM    = 70, MAX_PWM = 110;
+  const int   MIN_PWM    = 100, MAX_PWM = 150;
 
   int startA = posA, startB = posB;
 
@@ -969,6 +969,8 @@ void loop() {
     Serial.println("[REFLEX] Dead-end detected by sensors -> U-turn");
     turnIMU(180, 85, 2000);
     updateHeading(180);
+
+    // ✅ Always re-square after U-turn
     squareUp();
 
     if (millis() - lastStuckBeep > 800) {
@@ -998,20 +1000,30 @@ void loop() {
   if (turnDegrees == 90) {
     Serial.println("[TURN] Executing LEFT turn (90°)");
     turnIMU(+90, 80, 1600);
+    squareUp();
     updateHeading(+90);
+
+    // ✅ Align with walls after turn
+    
   } 
   else if (turnDegrees == -90) {
     Serial.println("[TURN] Executing RIGHT turn (-90°)");
     turnIMU(-90, 80, 1600);
+    squareUp();
     updateHeading(-90);
+
+ \
   } 
   else if (turnDegrees == 180) {
     Serial.println("[TURN] Executing U-turn (180°)");
     turnIMU(180, 85, 1800);
+    squareUp();
     updateHeading(180);
+
   } 
   else {
     Serial.println("[TURN] No turn needed, going straight");
+    // No need to square up here — heading is unchanged
   }
 
   // --- Move forward one cell ---
@@ -1020,6 +1032,12 @@ void loop() {
     updatePosition();
     buzzOK();
     Serial.println("[MOVEMENT] Forward movement successful");
+
+    // ✅ If there is a front wall, square up at end of move
+    float frontCheck = readMM(SID_FRONT, CH_FRONT);
+    if (frontCheck > 0 && frontCheck < NO_WALL_MM) {
+      squareUp();
+    }
   } else {
     Serial.println("[WARN] Forward move failed.");
     buzzAttention();
@@ -1029,7 +1047,7 @@ void loop() {
   printMaze();
 
   // --- Small delay to prevent overwhelming serial output ---
-  delay(5000);
+  delay(100);
 
   busy = false;
 }

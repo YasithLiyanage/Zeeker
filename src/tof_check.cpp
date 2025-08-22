@@ -24,7 +24,7 @@
 //   /* FRONT     */ {1.00f, -35.0f},
 //   /* RIGHT     */ {1.00f, -28.0f},
 //   /* ALEFT45   */ {1.00f,   20.0f},   // TODO: replace with your 45° left fit
-//   /* ARIGHT45  */ {1.00f,   0.0f}    // TODO: replace with your 45° right fit
+//   /* ARIGHT45  */ {1.00f,  -10.0f}    // TODO: replace with your 45° right fit
 // };
 
 // // Optional: treat very large values as “no wall”
