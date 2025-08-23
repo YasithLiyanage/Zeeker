@@ -11,6 +11,13 @@ bool waitingForButton = false;
 unsigned long buttonPressTime = 0;
 bool buttonPressed = false;
 
+String compressPathOnce(const String& path);
+String fullyCompressPath(const String& path);
+
+// --- Speed Run Globals ---
+String optimalPath = "";       // final path to replay
+int speedRunStepIndex = 0;     // current step index
+
 
 // top of file (globals)
 static unsigned long lastStuckBeep = 0;
@@ -222,8 +229,10 @@ Cal CAL[5] = {
 #define FLOOD_MAX 255
 
 
-// Global variable to hold the path as a string
-String fullPath = "";
+// Paths
+String forwardPath = "";   // path from start to target (only forward)
+String fullPath    = "";   // exploration path (keeps all steps, including return)
+
 
 // Maze storage
 uint8_t maze[MAZE_SIZE][MAZE_SIZE];
@@ -558,9 +567,18 @@ void updatePosition() {
   Serial.printf("[PATH] %s\n", fullPath.c_str());
   
   // Check if target reached
-  if (!targetReached && isTarget(robotX, robotY)) {
-    targetReached = true;
-    Serial.println("*** TARGET REACHED! ***");
+if (!targetReached && isTarget(robotX, robotY)) {
+  targetReached = true;
+  Serial.println("*** TARGET REACHED! ***");
+
+  // Save forward path separately
+  forwardPath = fullPath;  
+  optimalPath = fullyCompressPath(forwardPath);
+
+  Serial.print("[SPEED RUN] Compressed optimal path: ");
+  Serial.println(optimalPath);
+
+
     
     if (currentState == EXPLORING) {
       Serial.println("*** STARTING BACKTRACK ***");
@@ -1086,10 +1104,12 @@ bool driveOneCell() {
   resetEncoders();
   int startA = posA, startB = posB;
   bool stoppedEarly = false;
-  
-  // ✅ Track mode transitions
+
   bool wasInCorridor = false;
   bool wasInOpenSpace = false;
+
+  // print only coarse progress
+  int lastPrinted = -25;
 
   while (true) {
     // --- encoder progress ---
@@ -1100,6 +1120,7 @@ bool driveOneCell() {
     float fracA = (float)dA / ONE_CELL_TICKS_L();
     float fracB = (float)dB / ONE_CELL_TICKS_R();
     float prog  = (fracA + fracB) / 2.0f;
+    int progPercent = (int)(prog * 100);
 
     // --- check front sensor ---
     float F = readMM(SID_FRONT, CH_FRONT);
@@ -1110,47 +1131,43 @@ bool driveOneCell() {
     bool hasLeftWall = (L >= 0 && L < NO_WALL_MM);
     bool hasRightWall = (R >= 0 && R < NO_WALL_MM);
     bool noSideWalls = (!hasLeftWall && !hasRightWall);
-    
-    // ✅ Detect mode transitions and reset PID state
+
     bool inCorridor = !noSideWalls;
     bool inOpenSpace = noSideWalls;
-    
+
     if (inCorridor && wasInOpenSpace) {
-      Serial.println("[TRANSITION] Open space -> Corridor: Resetting PID state");
-      driveCentered(BASE_PWM, 0.0f, true); // Reset PID state
+      Serial.println("[TRANSITION] Open space -> Corridor");
+      driveCentered(BASE_PWM, 0.0f, true);
     }
-    
     if (inOpenSpace && wasInCorridor) {
-      Serial.println("[TRANSITION] Corridor -> Open space: Switching to encoder mode");
-      driveCentered(BASE_PWM, 0.0f, true); // Reset PID state
+      Serial.println("[TRANSITION] Corridor -> Open space");
+      driveCentered(BASE_PWM, 0.0f, true);
     }
-    
     wasInCorridor = inCorridor;
     wasInOpenSpace = inOpenSpace;
 
-    // 🚨 EMERGENCY STOPS (apply to both cases)
+    // 🚨 EMERGENCY STOPS
     if (F >= 0 && F < EARLY_STOP) {
       motorsStop();
-      Serial.printf("[driveOneCell] 🚨 EMERGENCY stop at %.0f%% cell, F=%.1f\n", prog * 100, F);
+      Serial.printf("[driveOneCell] 🚨 Emergency stop at %.0f%%, F=%.1f\n", prog*100, F);
       stoppedEarly = true;
       break;
     }
-    
     if (prog > 0.2f && F >= 0 && F < FRONT_STOP_MM) {
       motorsStop();
-      Serial.printf("[driveOneCell] ⚠️ Early stop, wall ahead. prog=%.0f%%, F=%.1f\n", prog * 100, F);
+      Serial.printf("[driveOneCell] ⚠️ Early stop at %.0f%%, F=%.1f\n", prog*100, F);
       stoppedEarly = true;
       break;
     }
 
-    // 🚨 SUCCESS CONDITION (apply to both cases)
+    // ✅ SUCCESS CONDITION
     if (prog >= 1.0f) {
       motorsStop();
-      Serial.println("[driveOneCell] ✅ Cell completed successfully.");
+      Serial.println("[driveOneCell] ✅ Cell completed.");
       return true;
     }
 
-    // --- Calculate base speed with accel/decel ---
+    // --- base speed with accel/decel ---
     float remainL = ONE_CELL_TICKS_L() - dA;
     float remainR = ONE_CELL_TICKS_R() - dB;
     float remainMM = fminf(remainL / TICKS_PER_MM_L, remainR / TICKS_PER_MM_R);
@@ -1168,54 +1185,48 @@ bool driveOneCell() {
       base = fmaxf(base * 0.6f, (float)MIN_PWM);
     }
 
-    // 🚨 Case 1: OPEN SPACE (no side walls) - Pure encoder balancing
+    // --- progress logging only every ~25% ---
+    if (progPercent >= lastPrinted + 25) {
+      if (noSideWalls) {
+        Serial.printf("[OPEN] %d%% prog\n", progPercent);
+      } else if (hasLeftWall && hasRightWall) {
+        Serial.printf("[CORRIDOR] %d%% prog, err=%.1f (L=%.0f R=%.0f)\n",
+                      progPercent, L - R, L, R);
+      } else if (hasLeftWall) {
+        Serial.printf("[LEFT] %d%% prog, err=%.1f L=%.0f\n",
+                      progPercent, L - TARGET_SIDE_MM, L);
+      } else if (hasRightWall) {
+        Serial.printf("[RIGHT] %d%% prog, err=%.1f R=%.0f\n",
+                      progPercent, -(R - TARGET_SIDE_MM), R);
+      }
+      lastPrinted = progPercent;
+    }
+
+    // 🚨 Case 1: OPEN SPACE (encoder balancing)
     if (noSideWalls) {
-      Serial.printf("[driveOneCell] OPEN SPACE: L=%.1f R=%.1f prog=%.0f%% (ticks: %d,%d)\n", 
-                    L, R, prog * 100, dA, dB);
-      
-      // ✅ GENTLE encoder balancing only - REDUCED gain further
       int tickErr = (posA - startA) - (posB - startB);
-      float encoderCorrection = tickErr * 0.08f; // REDUCED from 0.15f to 0.08f
-      
-      int leftPWM = constrain((int)(base + encoderCorrection), MIN_PWM, MAX_PWM);
-      int rightPWM = constrain((int)(base - encoderCorrection), MIN_PWM, MAX_PWM);
-      
-      Serial.printf("[OPEN] tickErr=%d, correction=%.2f, PWM L=%d R=%d\n", 
-                    tickErr, encoderCorrection, leftPWM, rightPWM);
-      
-      // Direct motor control - NO driveCentered()
+      float correction = tickErr * 0.08f;
+      int leftPWM  = constrain((int)(base + correction), MIN_PWM, MAX_PWM);
+      int rightPWM = constrain((int)(base - correction), MIN_PWM, MAX_PWM);
       motorL(leftPWM);
       motorR(rightPWM);
-      
       buzzUpdate();
       delay(10);
-      continue; // Skip the corridor logic below
+      continue;
     }
 
-    // 🚨 Case 2: CORRIDOR (with walls) - Wall centering
-    Serial.printf("[driveOneCell] CORRIDOR: L=%.1f R=%.1f prog=%.0f%% (ticks: %d,%d)\n", 
-                  L, R, prog * 100, dA, dB);
-    
+    // 🚨 Case 2: CORRIDOR (wall centering)
     float err = 0.0f;
-    if (hasLeftWall && hasRightWall) {
-      err = L - R;  // Center between both walls
-      Serial.printf("[CORRIDOR] Both walls: err=%.1f\n", err);
-    } else if (hasLeftWall) {
-      err = L - TARGET_SIDE_MM;  // Maintain distance from left wall
-      Serial.printf("[CORRIDOR] Left wall only: err=%.1f\n", err);
-    } else if (hasRightWall) {
-      err = -(R - TARGET_SIDE_MM);  // Maintain distance from right wall  
-      Serial.printf("[CORRIDOR] Right wall only: err=%.1f\n", err);
-    }
+    if (hasLeftWall && hasRightWall) err = L - R;
+    else if (hasLeftWall)            err = L - TARGET_SIDE_MM;
+    else if (hasRightWall)           err = -(R - TARGET_SIDE_MM);
 
-    // Apply encoder tick balancing to base speed
     int tickErr = (posA - startA) - (posB - startB);
     base = base - BAL_GAIN * tickErr;
     base = constrain(base, MIN_PWM, MAX_PWM);
 
-    // Use wall-centering PID for corridors
     driveCentered((int)base, err, false);
-    
+
     buzzUpdate();
     delay(10);
   }
@@ -1227,48 +1238,61 @@ bool driveOneCell() {
   float prog = ((float)dA / ONE_CELL_TICKS_L() + (float)dB / ONE_CELL_TICKS_R()) / 2.0f;
 
   if (stoppedEarly) {
-    if (prog >= 0.90f) {
-      Serial.printf("[driveOneCell] ✅ Early stop but %.0f%% covered → ACCEPTED\n", prog * 100);
+    if (prog >= 0.85f) {
+      Serial.printf("[driveOneCell] ✅ Early stop but %.0f%% covered → ACCEPTED\n", prog*100);
       return true;
     } else {
-      Serial.printf("[driveOneCell] ❌ Stopped early at %.0f%%\n", prog * 100);
+      Serial.printf("[driveOneCell] ❌ Stopped early at %.0f%%\n", prog*100);
       return false;
     }
   }
 
-  return false; // fallback
+  return false;
 }
 
-void backtrackToStart() {
-  Serial.println("[BACKTRACK] Returning to start via recorded path...");
 
-  for (int i = fullPath.length() - 2; i >= 0; i -= 2) {
-    char step = fullPath[i];
+void backtrackToStart() {
+  Serial.println("[BACKTRACK] Returning to start via compressed path...");
+
+  // ✅ Compress the exploration path first
+  String backPath = fullyCompressPath(fullPath);
+
+  // ✅ Walk the path backwards
+  for (int i = backPath.length() - 1; i >= 0; i--) {
+    char step = backPath[i];
     char backStep;
 
     if (step == 'N') backStep = 'S';
     else if (step == 'S') backStep = 'N';
     else if (step == 'E') backStep = 'W';
     else if (step == 'W') backStep = 'E';
-    else backStep = '?';
+    else {
+      Serial.printf("[BACKTRACK] Invalid step: %c, skipping\n", step);
+      continue;
+    }
 
     Serial.printf("[BACKTRACK] Step %c -> %c\n", step, backStep);
 
-int dir = -1;  // Initialize to invalid
-if (backStep == 'N') dir = 0;
-else if (backStep == 'E') dir = 1;
-else if (backStep == 'S') dir = 2;
-else if (backStep == 'W') dir = 3;
+    // Map backStep to direction
+    int dir = -1;
+    if (backStep == 'N') dir = 0;
+    else if (backStep == 'E') dir = 1;
+    else if (backStep == 'S') dir = 2;
+    else if (backStep == 'W') dir = 3;
 
-if (dir == -1) {
-  Serial.printf("[BACKTRACK] Invalid step: %c, skipping\n", backStep);
-  continue;
-}
+    if (dir == -1) {
+      Serial.printf("[BACKTRACK] Invalid direction for %c\n", backStep);
+      continue;
+    }
 
+    // Turn to face the direction
     int turnDeg = calculateTurn(dir);
-    if (turnDeg != 0) turnIMU(turnDeg, 80, 1800);
-    updateHeading(turnDeg);
+    if (turnDeg != 0) {
+      turnIMU(turnDeg, 80, 1800);
+      updateHeading(turnDeg);
+    }
 
+    // Move forward one cell
     if (driveOneCell()) {
       updatePosition();
       buzzOK();
@@ -1278,49 +1302,52 @@ if (dir == -1) {
     }
   }
 
-  Serial.println("[BACKTRACK] Arrived back at (0,0)!");
+  Serial.println("[BACKTRACK] ✅ Arrived back at (0,0)!");
+  motorsStop();
 
-Serial.println("[BACKTRACK] Arrived back at (0,0)!");
-motorsStop();
-
-// Prepare for speed run immediately
-prepareForSpeedRun();
+  // Prepare for speed run immediately
+  prepareForSpeedRun();
 }
+
 
 
 void prepareForSpeedRun() {
   Serial.println("\n*** PREPARING FOR SPEED RUN ***");
   
-  // Stop the robot
+  // Stop the robot cleanly
   motorsStop();
-  delay(500); // Give time to fully stop
-  
-  // Turn 180 degrees to face North (ready for speed run)
-  Serial.println("[PREP] Turning 180° to face North for speed run");
-  
-  // FIXED: Actually perform the turn with better parameters
-  turnIMU(180, 90, 3000); // Increased timeout to 3 seconds
-  updateHeading(180);
-  
-  // Wait a moment after turn
   delay(500);
-  
-  // Square up after the turn
+
+  // Turn 180° to face North (competition standard start orientation)
+  Serial.println("[PREP] Turning 180° to face North for speed run");
+  turnIMU(180, 90, 3000);  // 90 PWM, 3s timeout
+  updateHeading(180);
+  delay(500);
+
+  // Square-up for reliability
   squareUp();
-  
-  // Clear only necessary states, keep the maze map!
+
+// --- IMPORTANT: Use the clean forward path, not backtrack path ---
+optimalPath = fullyCompressPath(forwardPath);
+Serial.print("[SPEED RUN] Using compressed path: ");
+Serial.println(optimalPath);
+
+
+  Serial.println(optimalPath);
+
+  // Reset counters
   stepCount = 0;
-  fullPath = "";  // Clear the path since we'll use flood fill for speed run
-  
-  // Set state for speed run  
+  speedRunStepIndex = 0;
+  targetReached = false;
+
+  // Switch state
   currentState = SPEED_RUN;
-  targetReached = false;  // Reset target flag for speed run
   waitingForButton = true;
-  buttonPressed = false;  // IMPORTANT: Reset this flag
-  
+  buttonPressed = false;  // reset flag
+
   Serial.println("*** READY FOR SPEED RUN! PRESS BUTTON OR TYPE 'Y' TO START ***");
-  
-  // Victory beeps to indicate ready
+
+  // Triple beep → ready signal
   buzzStart(1500, 150);
   delay(200);
   buzzStart(1800, 150);
@@ -1328,20 +1355,53 @@ void prepareForSpeedRun() {
   buzzStart(2000, 200);
 }
 
-// Add this function after your other helper functions
 String getOptimalPath() {
-  // The path recorded during exploration: "N N N E E"
-  // This is the optimal path from (0,0) to target (2,3)
-  return "N N N E E"; // You can extract this from fullPath or hardcode the optimal path
+  // Use the path recorded during exploration (fullPath)
+return optimalPath;
 }
 
+void doSpeedRunStep() {
+  if (speedRunStepIndex >= optimalPath.length()) {
+    Serial.println("[SPEED RUN] ✅ PATH COMPLETED! Target reached via optimal route!");
+    buzzOK();
+    waitingForButton = true;
+    return;
+  }
+
+  char move = optimalPath[speedRunStepIndex];
+  int dir = -1;
+  if (move == 'N') dir = 0;
+  else if (move == 'E') dir = 1;
+  else if (move == 'S') dir = 2;
+  else if (move == 'W') dir = 3;
+
+  int turnDeg = calculateTurn(dir);
+  if (turnDeg != 0) {
+    turnIMU(turnDeg, 100, 2000);
+    updateHeading(turnDeg);
+  }
+
+  if (driveOneCell()) {
+    updatePosition();
+    Serial.printf("[SPEED RUN] Step %d: %c OK\n", speedRunStepIndex+1, move);
+  } else {
+    Serial.printf("[SPEED RUN] Step %d: %c FAILED!\n", speedRunStepIndex+1, move);
+  }
+
+  speedRunStepIndex++;
+}
+
+
 int getNextDirectionFromPath(int stepIndex) {
-  String optimalPath = "NNNEE"; // Compact version of the path
+  String optimalPath = getOptimalPath();
   
+  // Remove spaces from "N N N E E"
+  optimalPath.replace(" ", "");
+
   if (stepIndex >= optimalPath.length()) {
     return -1; // No more steps
   }
-  
+
   char nextMove = optimalPath[stepIndex];
   
   switch (nextMove) {
@@ -1352,6 +1412,40 @@ int getNextDirectionFromPath(int stepIndex) {
     default: return -1;
   }
 }
+// === PATH COMPRESSION HELPERS ===
+String compressPathOnce(const String& path) {
+  String cleaned = path;
+  cleaned.replace(" ", "");  // remove spaces
+
+  String result = "";
+  for (int i = 0; i < cleaned.length(); i++) {
+    char c = cleaned[i];
+    if (!result.isEmpty()) {
+      char last = result[result.length()-1];
+      if ((last == 'N' && c == 'S') ||
+          (last == 'S' && c == 'N') ||
+          (last == 'E' && c == 'W') ||
+          (last == 'W' && c == 'E')) {
+        result.remove(result.length()-1);  // cancel out
+        continue;
+      }
+    }
+    result += c;
+  }
+  return result;
+}
+
+String fullyCompressPath(const String& path) {
+  String current = path;
+  while (true) {
+    String next = compressPathOnce(current);
+    if (next == current) break;  // no more changes
+    current = next;
+  }
+  return current;
+}
+
+
 
 // ======================================================
 // ====================  Setup  =========================
@@ -1431,132 +1525,14 @@ void setup() {
   Serial.println("Zeeker: Starting with PURE FLOOD FILL algorithm!");
 }
 
-
-// ======================================================
-// ====================  Main loop  =====================
-// ======================================================
-
-void loop() {
-  buzzUpdate();
-  checkButton();  // Check for button press
-  
-  // Handle button press for new run
-  if (waitingForButton) {
-    if (buttonPressed) {
-      Serial.println("[BUTTON] Button/Serial input detected, starting new run!");
-      buttonPressed = false;      
-      waitingForButton = false;   
-      resetForNewRun();           
-      delay(100); // Small delay before continuing
-      busy = false; // Make sure to reset busy flag
-      return;
-    }
-
-    static unsigned long lastWaitBeep = 0;
-    if (millis() - lastWaitBeep > 3000) { // Reduced beep frequency
-      Serial.printf("*** Waiting for button press or 'Y' key to start speed run... (State: %d) ***\n", currentState);
-      buzzAttention();
-      lastWaitBeep = millis();
-    }
-    busy = false; // IMPORTANT: Reset busy flag when waiting
-    return;
-  }
-
-  if (busy) return;
+void explorationStep() {
+  if (busy) return;   // prevent re-entrancy
   busy = true;
 
-  Serial.println("\n[MAIN] Starting new step...");
+  Serial.println("\n[FLOOD FILL] Starting new step...");
   Serial.printf("[DEBUG] At (%d,%d) facing %s\n", robotX, robotY, dirNames[robotHeading]);
 
-  // --- SPEED RUN: Use recorded optimal path ---
-  if (currentState == SPEED_RUN) {
-    Serial.println("[SPEED RUN] Using recorded optimal path...");
-    
-    // Optimal path discovered during exploration: N N N E E
-    String optimalPath = "NNNEE";
-    
-    if (stepCount >= optimalPath.length()) {
-      Serial.println("[SPEED RUN] ✅ PATH COMPLETED! Target reached via optimal route!");
-      motorsStop();
-      
-      // Victory celebration
-      buzzStart(2500, 800);
-      delay(1000);
-      buzzStart(3000, 500);
-      
-      // Reset for potential new exploration
-      waitingForButton = true;
-      Serial.println("*** PRESS BUTTON OR 'Y' TO START NEW EXPLORATION ***");
-      busy = false;
-      return;
-    }
-    
-    // Get next direction from optimal path
-    char nextMove = optimalPath[stepCount];
-    int nextDirection = -1;
-    
-    switch (nextMove) {
-      case 'N': nextDirection = 0; break; // North
-      case 'E': nextDirection = 1; break; // East  
-      case 'S': nextDirection = 2; break; // South
-      case 'W': nextDirection = 3; break; // West
-      default: 
-        Serial.println("[SPEED RUN ERROR] Invalid path character!");
-        busy = false;
-        return;
-    }
-    
-    Serial.printf("[SPEED RUN] Step %d: Following path to %s\n", 
-                  stepCount + 1, dirNames[nextDirection]);
-    
-    // Calculate required turn
-    int turnDegrees = calculateTurn(nextDirection);
-    Serial.printf("[SPEED RUN] Need to go %s, currently facing %s -> Turn: %d°\n",
-                  dirNames[nextDirection], dirNames[robotHeading], turnDegrees);
-
-    // Execute turn if needed
-    if (turnDegrees == 90) {
-      Serial.println("[TURN] Executing LEFT turn (90°)");
-      turnIMU(+90, 85, 1600); // Slightly higher PWM for speed run
-      squareUp();
-      updateHeading(+90);
-    } else if (turnDegrees == -90) {
-      Serial.println("[TURN] Executing RIGHT turn (-90°)");
-      turnIMU(-90, 85, 1600);
-      squareUp();
-      updateHeading(-90);
-    } else if (turnDegrees == 180) {
-      Serial.println("[TURN] Executing U-turn (180°)");
-      turnIMU(180, 90, 1800);
-      squareUp();
-      updateHeading(180);
-    } else {
-      Serial.println("[TURN] No turn needed, going straight");
-    }
-
-    // Move forward one cell
-    Serial.println("[SPEED RUN] Moving forward one cell...");
-    if (driveOneCell()) {
-      updatePosition(); // This will handle target detection
-      buzzOK();
-      Serial.println("[SPEED RUN] Forward movement successful");
-    } else {
-      Serial.println("[WARN] Speed run move failed.");
-      buzzAttention();
-    }
-
-    // Print current state
-    printMaze();
-    delay(300); // Shorter delay for speed run
-    busy = false;
-    return;
-  }
-
-  // --- EXPLORATION & RETURNING: Use flood fill ---
-  Serial.println("[EXPLORATION] Using flood fill algorithm...");
-  
-  // --- Scan walls at current position (BEFORE TURN) ---
-  Serial.println("[SCAN] Sensor readings BEFORE turn:");
+  // --- Scan walls at current position ---
   scanWalls();
 
   // --- Dead-end reflex ---
@@ -1568,21 +1544,12 @@ void loop() {
                     (Fnow >= 0 && Fnow < NO_WALL_MM) &&
                     (Rnow >= 0 && Rnow < NO_WALL_MM);
 
-  static unsigned long lastStuckBeep = 0;
   if (deadEndNow) {
-    Serial.println("[REFLEX] Dead-end detected by sensors -> U-turn");
+    Serial.println("[REFLEX] Dead-end detected -> U-turn");
     turnIMU(180, 85, 2000);
     updateHeading(180);
     squareUp();
-
-    // --- Debug AFTER U-turn ---
-    Serial.println("[SCAN] Sensor readings AFTER U-turn:");
     scanWalls();
-
-    if (millis() - lastStuckBeep > 800) {
-      buzzAttention();
-      lastStuckBeep = millis();
-    }
     busy = false;
     return;
   }
@@ -1590,64 +1557,109 @@ void loop() {
   // --- Use flood fill to decide next move ---
   int bestDirection = makeFloodFillDecision();
   if (bestDirection == -1) {
-    Serial.println("[ERROR] No valid direction found! Stopping robot.");
+    Serial.println("[ERROR] No valid direction found! Stopping.");
     motorsStop();
     buzzAttention();
     busy = false;
     return;
   }
 
-  // --- Calculate required turn ---
+  // --- Calculate turn ---
   int turnDegrees = calculateTurn(bestDirection);
-  Serial.printf("[NAVIGATION] Need to go %s, currently facing %s -> Turn: %d°\n",
-                dirNames[bestDirection], dirNames[robotHeading], turnDegrees);
+  Serial.printf("[NAVIGATION] Best dir=%s, turn=%d°\n",
+                dirNames[bestDirection], turnDegrees);
 
-  // --- Execute turn if needed ---
-  if (turnDegrees == 90) {
-    Serial.println("[TURN] Executing LEFT turn (90°)");
-    turnIMU(+90, 80, 1600);
+  // --- Execute turn ---
+  if (turnDegrees != 0) {
+    turnIMU(turnDegrees, 80, 1800);
     squareUp();
-    updateHeading(+90);
-
-  } else if (turnDegrees == -90) {
-    Serial.println("[TURN] Executing RIGHT turn (-90°)");
-    turnIMU(-90, 80, 1600);
-    squareUp();
-    updateHeading(-90);
-
-  } else if (turnDegrees == 180) {
-    Serial.println("[TURN] Executing U-turn (180°)");
-    turnIMU(180, 85, 1800);
-    squareUp();
-    updateHeading(180);
-
-  } else {
-    Serial.println("[TURN] No turn needed, going straight");
+    updateHeading(turnDegrees);
   }
 
-  // --- Debug AFTER TURN ---
-  Serial.println("[SCAN] Sensor readings AFTER turn:");
-  scanWalls();
-
   // --- Move forward one cell ---
-  Serial.println("[MOVEMENT] Moving forward one cell...");
   if (driveOneCell()) {
     float frontCheck = readMM(SID_FRONT, CH_FRONT);
     if (frontCheck > 0 && frontCheck < NO_WALL_MM) {
       squareUp();
     }
-
     updatePosition();
     buzzOK();
-    Serial.println("[MOVEMENT] Forward movement successful");
   } else {
-    Serial.println("[WARN] Forward move failed.");
+    Serial.println("[WARN] Forward move failed");
     buzzAttention();
   }
 
-  // --- Print current state ---
+  // --- Print map after move ---
   printMaze();
 
-  delay(1000);
   busy = false;
+}
+
+
+
+// ======================================================
+// ====================  Main loop  =====================
+// ======================================================
+void loop() {
+  // Always check button each cycle
+  checkButton();
+
+  switch (currentState) {
+
+    case EXPLORING:
+      if (waitingForButton) {
+        if (buttonPressed) {
+          buttonPressed = false;
+          waitingForButton = false;
+          Serial.println("*** STARTING EXPLORATION ***");
+          buzzOK();
+        } else {
+          static unsigned long lastBeep = 0;
+          if (millis() - lastBeep > 2000) {
+            Serial.println("Waiting for button to start exploration...");
+            buzzAttention();
+            lastBeep = millis();
+          }
+        }
+      } else {
+        explorationStep();   // your existing exploration logic
+      }
+      break;
+
+    case RETURNING:
+      if (!waitingForButton) {
+        backtrackToStart();   // backtrack code sets waitingForButton true at finish
+      }
+      break;
+
+    case SPEED_RUN:
+      if (waitingForButton) {
+        if (buttonPressed || Serial.available()) {
+          char c = 0;
+          if (Serial.available()) {
+            c = Serial.read();
+          }
+          if (c == 'Y' || c == 'y' || buttonPressed) {
+            buttonPressed = false;
+            waitingForButton = false;
+            Serial.println("*** STARTING SPEED RUN TO CENTER ***");
+            buzzOK();
+          }
+        } else {
+          static unsigned long lastBeep = 0;
+          if (millis() - lastBeep > 2000) {
+            Serial.println("*** Waiting for button press or 'Y' key to start speed run... (State: SPEED_RUN) ***");
+            buzzAttention();
+            lastBeep = millis();
+          }
+        }
+      } else {
+        doSpeedRunStep();
+      }
+      break;
+
+    default:
+      Serial.println("[ERROR] Unknown state!");
+      break;
+  }
 }
