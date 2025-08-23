@@ -924,7 +924,6 @@ void squareUp() {
 
 
 
-
 // ======================================================
 // ====================  IMU turns  =====================
 // ======================================================
@@ -1324,8 +1323,12 @@ void prepareForSpeedRun() {
   updateHeading(180);
   delay(500);
 
-  // Square-up for reliability
-  squareUp();
+   // 🚫 Don’t square-up at (0,0) – walls are not reliable
+  if (!(robotX == 0 && robotY == 0)) {
+    squareUp();
+  } else {
+    Serial.println("[PREP] Skipping square-up at start cell (0,0)");
+  }
 
 // --- IMPORTANT: Use the clean forward path, not backtrack path ---
 optimalPath = fullyCompressPath(forwardPath);
@@ -1546,10 +1549,11 @@ void explorationStep() {
 
   if (deadEndNow) {
     Serial.println("[REFLEX] Dead-end detected -> U-turn");
-    turnIMU(180, 85, 2000);
-    updateHeading(180);
-    squareUp();
-    scanWalls();
+turnIMU(180, 85, 2000);
+updateHeading(180);
+// No square-up in dead-end
+scanWalls();
+
     busy = false;
     return;
   }
