@@ -107,6 +107,39 @@ void buzzUpdate() {
 // optional helpers (short/ok and double-beep patterns, non-blocking)
 void buzzOK()        { buzzStart(1500, 80); }     // quick chirp
 void buzzAttention() { buzzStart(300, 50); }    // slightly 
+// --- New gentle sounds ---
+void buzzSuccess() {
+  // Gentle 3-tone rising success sound
+  buzzStart(800, 120);   // low gentle tone
+  delay(150);
+  buzzStart(1000, 120);
+  delay(150);
+  buzzStart(1200, 180);
+}
+
+// --- New patterns ---
+
+// --- Beep patterns ---
+
+// Two quick beeps (use for READY and FINISH)
+void buzzDoubleOK() {
+  buzzStart(1500, 80);
+  delay(120);
+  buzzStart(1800, 80);
+}
+
+// Heartbeat: soft tick once every 1s while waiting (non-blocking)
+void buzzHeartbeat() {
+  static unsigned long lastBeat = 0;
+  if (millis() - lastBeat >= 1000) {
+    buzzStart(1200, 30);   // very short, high tick
+    lastBeat = millis();
+  }
+}
+
+
+
+
 
 // void checkButton() {
 //   static bool lastReading = HIGH;
@@ -216,7 +249,7 @@ Cal CAL[5] = {
 #define NUDGE_PWM         85
 
 // ========== WALL MAPPING ==========
-#define MAZE_SIZE 6  // Keep your original 16X16 size
+#define MAZE_SIZE 16  // Keep your original 16X16 size
 
 // Wall bits for each cell
 #define WALL_NORTH  0x01
@@ -505,21 +538,16 @@ void scanWalls() {
 
   uint8_t wallBits[] = {WALL_NORTH, WALL_EAST, WALL_SOUTH, WALL_WEST};
 
-  // --- Special case: ignore false front wall at (0,0) facing North ---
-  bool ignoreFront = (robotX == 0 && robotY == 0 && robotHeading == 0);
-
   // LEFT wall check
   if (isWall(L, R)) {
     addWall(robotX, robotY, wallBits[leftDir]);
     Serial.printf("[SCAN] Wall detected on LEFT (%s)\n", dirNames[leftDir]);
   }
 
-  // FRONT wall check (unless we’re ignoring at start)
-  if (!ignoreFront && isWall(F, -1)) {
+  // FRONT wall check (always enabled, no exceptions)
+  if (isWall(F, -1)) {
     addWall(robotX, robotY, wallBits[frontDir]);
     Serial.printf("[SCAN] Wall detected on FRONT (%s)\n", dirNames[frontDir]);
-  } else if (ignoreFront) {
-    Serial.println("[SCAN] Ignoring front wall at start cell (0,0) facing North");
   }
 
   // RIGHT wall check
@@ -528,6 +556,7 @@ void scanWalls() {
     Serial.printf("[SCAN] Wall detected on RIGHT (%s)\n", dirNames[rightDir]);
   }
 }
+
 
 // Update robot position after moving forward
 void updatePosition() {
@@ -582,13 +611,13 @@ if (!targetReached && isTarget(robotX, robotY)) {
     
     if (currentState == EXPLORING) {
       Serial.println("*** STARTING BACKTRACK ***");
-      buzzStart(2000, 500);
+buzzDoubleOK();   // ✅ instead of buzzStart(...) music
       motorsStop();
       delay(1000);  // small pause
       backtrackToStart();   // ✅ go back to (0,0)
     } else if (currentState == SPEED_RUN) {
       Serial.println("*** SPEED RUN COMPLETED! ***");
-      buzzStart(2500, 800);  // Different victory sound for speed run
+buzzDoubleOK();  // ✅ two quick beeps at finish
       motorsStop();
       
       // Reset for potential new exploration
@@ -1091,9 +1120,9 @@ void driveStraight(int pwm) {
 
 bool driveOneCell() {
   // --- constants ---
-  const int   BASE_PWM    = 80;
+  const int   BASE_PWM    = 80; //80
   const int   MIN_PWM     = 70;
-  const int   MAX_PWM     = 90;
+  const int   MAX_PWM     = 90; //90
   const float BAL_GAIN    = 0.5f;
   const float ACCEL_MM    = 40.0f;   // distance to ramp up
   const float DECEL_MM    = 50.0f;   // distance to ramp down
@@ -1351,11 +1380,9 @@ Serial.println(optimalPath);
   Serial.println("*** READY FOR SPEED RUN! PRESS BUTTON OR TYPE 'Y' TO START ***");
 
   // Triple beep → ready signal
-  buzzStart(1500, 150);
-  delay(200);
-  buzzStart(1800, 150);
-  delay(200); 
-  buzzStart(2000, 200);
+    // Success sound once → ready
+buzzDoubleOK();
+
 }
 
 String getOptimalPath() {
@@ -1612,18 +1639,14 @@ void loop() {
 
     case EXPLORING:
       if (waitingForButton) {
+        buzzHeartbeat();
         if (buttonPressed) {
           buttonPressed = false;
           waitingForButton = false;
           Serial.println("*** STARTING EXPLORATION ***");
           buzzOK();
         } else {
-          static unsigned long lastBeep = 0;
-          if (millis() - lastBeep > 2000) {
-            Serial.println("Waiting for button to start exploration...");
-            buzzAttention();
-            lastBeep = millis();
-          }
+          
         }
       } else {
         explorationStep();   // your existing exploration logic
@@ -1638,6 +1661,7 @@ void loop() {
 
     case SPEED_RUN:
       if (waitingForButton) {
+        buzzHeartbeat();
         if (buttonPressed || Serial.available()) {
           char c = 0;
           if (Serial.available()) {
@@ -1653,7 +1677,7 @@ void loop() {
           static unsigned long lastBeep = 0;
           if (millis() - lastBeep > 2000) {
             Serial.println("*** Waiting for button press or 'Y' key to start speed run... (State: SPEED_RUN) ***");
-            buzzAttention();
+buzzHeartbeat();  // ✅ small tick while idle
             lastBeep = millis();
           }
         }
