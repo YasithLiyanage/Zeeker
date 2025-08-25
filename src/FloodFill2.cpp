@@ -6,12 +6,19 @@
 // #define IMU_Z_SIGN  -1   // <-- change to +1 if IMU is mounted differently
 // void motorsStop();   // forward declaration
 // void backtrackToStart();  // forward declaration
+// void prepareForSpeedRun();
+// bool waitingForButton = false;
+// unsigned long buttonPressTime = 0;
+// bool buttonPressed = false;
+
 
 // // top of file (globals)
 // static unsigned long lastStuckBeep = 0;
 
 // #define EARLY_WALL_TOL_MM  40   // acceptable if we stop this close to 1-cell
-
+// #define BUTTON_PIN 13
+// // Add this near the top with your other global variables (around line 20-30)
+// static bool busy = false;
 
 // // ========== Motor pins ==========
 // #define PWM_LEFT    4
@@ -85,9 +92,70 @@
 //   }
 // }
 
+
+
+
+
+
 // // optional helpers (short/ok and double-beep patterns, non-blocking)
 // void buzzOK()        { buzzStart(1500, 80); }     // quick chirp
 // void buzzAttention() { buzzStart(300, 50); }    // slightly 
+
+// // void checkButton() {
+// //   static bool lastReading = HIGH;
+// //   static unsigned long lastDebounceTime = 0;
+// //   const unsigned long debounceDelay = 50; // Increased debounce time
+
+// //   bool reading = digitalRead(BUTTON_PIN);
+
+// //   if (reading != lastReading) {
+// //     lastDebounceTime = millis();
+// //   }
+
+// //   if ((millis() - lastDebounceTime) > debounceDelay) {
+// //     // detect transition: HIGH -> LOW
+// //     if (lastReading == HIGH && reading == LOW) {
+// //       buttonPressed = true;
+// //       Serial.println("[BUTTON] PRESS detected!");
+// //       buzzOK();
+// //     }
+// //   }
+
+// //   lastReading = reading;
+  
+// //   // ADD SERIAL INPUT CHECK HERE
+// //   if (Serial.available()) {
+// //     char input = Serial.read();
+// //     if (input == 'Y' || input == 'y') {
+// //       buttonPressed = true;
+// //       Serial.println("[SERIAL] Y key pressed - simulating button!");
+// //       buzzOK();
+// //       // Clear any remaining serial input
+// //       while (Serial.available()) Serial.read();
+// //     }
+// //   }
+// // }
+
+// void checkButton() {
+//   bool reading = digitalRead(BUTTON_PIN);
+//   static bool lastReading = HIGH;
+
+//   if (reading != lastReading) {
+//     Serial.printf("[BUTTON DEBUG] state=%d (0=pressed,1=idle)\n", reading);
+//     delay(10); // just to slow down spam
+//   }
+
+//   // Trigger only on HIGH -> LOW transition
+//   if (lastReading == HIGH && reading == LOW) {
+//     buttonPressed = true;
+//     Serial.println("[BUTTON] PRESS detected!");
+//     buzzOK();
+//   }
+
+//   lastReading = reading;
+// }
+
+
 
 // // ========== I2C / MUX ==========
 // #define SDA_PIN     25
@@ -141,7 +209,7 @@
 // #define NUDGE_PWM         85
 
 // // ========== WALL MAPPING ==========
-// #define MAZE_SIZE 6  // Keep your original 4x4 size
+// #define MAZE_SIZE 6  // Keep your original 16X16 size
 
 // // Wall bits for each cell
 // #define WALL_NORTH  0x01
@@ -268,14 +336,13 @@
 //   if (currentState == RETURNING) {
 //     floodMap[0][0] = 0;
 //     queue[rear++] = {0, 0};
-// } else {
-//   // Seed all 4 center cells
-//   floodMap[CENTER1][CENTER1] = 0; queue[rear++] = {CENTER1, CENTER1};
-//   floodMap[CENTER1][CENTER2] = 0; queue[rear++] = {CENTER1, CENTER2};
-//   floodMap[CENTER2][CENTER1] = 0; queue[rear++] = {CENTER2, CENTER1};
-//   floodMap[CENTER2][CENTER2] = 0; queue[rear++] = {CENTER2, CENTER2};
-// }
-
+//   } else {  // Both EXPLORING and SPEED_RUN target the center
+//     // Seed all 4 center cells
+//     floodMap[CENTER1][CENTER1] = 0; queue[rear++] = {CENTER1, CENTER1};
+//     floodMap[CENTER1][CENTER2] = 0; queue[rear++] = {CENTER1, CENTER2};
+//     floodMap[CENTER2][CENTER1] = 0; queue[rear++] = {CENTER2, CENTER1};
+//     floodMap[CENTER2][CENTER2] = 0; queue[rear++] = {CENTER2, CENTER2};
+//   }
   
 //   // BFS
 //   while (front < rear) {
@@ -296,57 +363,58 @@
 //   }
 // }
 
+
 // // ========== NEW: DEDICATED FLOOD FILL DECISION FUNCTION ==========
 // int makeFloodFillDecision() {
 //   Serial.println("\n[FLOOD FILL] Making navigation decision...");
-  
-//   // Run flood fill algorithm
+
+//   // Run flood fill with current maze map
 //   floodFill();
-  
-//   // Find the best direction (lowest flood value)
-//   int bestDirection = -1;
-//   int lowestValue = FLOOD_MAX + 1;
-  
+
+//   // Current cell value
 //   Serial.printf("[FLOOD FILL] Current position (%d,%d) has flood value: %d\n", 
 //                 robotX, robotY, floodMap[robotX][robotY]);
-  
+
+//   int bestDirection = -1;
+//   int lowestValue   = FLOOD_MAX + 1;
+
 //   // Check all 4 directions
 //   for (int dir = 0; dir < 4; dir++) {
 //     int newX = robotX + dx[dir];
 //     int newY = robotY + dy[dir];
-    
-//     // Check bounds
+
 //     if (newX < 0 || newX >= MAZE_SIZE || newY < 0 || newY >= MAZE_SIZE) {
 //       Serial.printf("[FLOOD FILL] Direction %s: OUT OF BOUNDS\n", dirNames[dir]);
 //       continue;
 //     }
-    
-//     // Check for walls
+
+//     // ✅ Always re-check canMove (uses latest wall info from scanWalls)
 //     if (!canMove(robotX, robotY, dir)) {
 //       Serial.printf("[FLOOD FILL] Direction %s: BLOCKED BY WALL\n", dirNames[dir]);
 //       continue;
 //     }
-    
+
 //     int floodValue = floodMap[newX][newY];
-//     Serial.printf("[FLOOD FILL] Direction %s -> Cell (%d,%d) has flood value: %d\n", 
+//     Serial.printf("[FLOOD FILL] Direction %s -> Cell (%d,%d) flood value: %d\n", 
 //                   dirNames[dir], newX, newY, floodValue);
-    
+
 //     if (floodValue < lowestValue) {
-//       lowestValue = floodValue;
+//       lowestValue   = floodValue;
 //       bestDirection = dir;
 //     }
 //   }
-  
+
 //   if (bestDirection == -1) {
 //     Serial.println("[FLOOD FILL ERROR] No valid direction found!");
 //     return -1;
 //   }
-  
-//   Serial.printf("[FLOOD FILL] Best direction: %s (flood value: %d)\n", 
+
+//   Serial.printf("[FLOOD FILL] ✅ Best direction: %s (flood value: %d)\n", 
 //                 dirNames[bestDirection], lowestValue);
-  
 //   return bestDirection;
 // }
+
+
 
 // // Calculate turn needed to face a specific direction
 // int calculateTurn(int targetDirection) {
@@ -397,19 +465,15 @@
 
 // // ================= Wall detection helper =================
 // bool isWall(float mm, float oppMm) {
-//   if (mm < 0) return false;           // invalid reading
-  
-//   if (mm < 70) return true;           // close wall
-  
-//   if (mm > 80 && mm < 110) {          // mid (~100mm) reading
-//     if (oppMm > 0 && oppMm < 70) {    // opposite side is close
+//   if (mm < 0) return false;            // invalid reading
+//   if (mm < 70) return true;            // close wall
+//   if (mm > 80 && mm < 110) {           // mid (~100mm) reading
+//     if (oppMm > 0 && oppMm < 70) {     // opposite side is close
 //       return true;
 //     }
 //   }
-  
 //   return false;
 // }
-
 
 // // Scan and record walls at current position
 // void scanWalls() {
@@ -417,38 +481,43 @@
   
 //   // Mark current cell as visited
 //   maze[robotX][robotY] |= VISITED;
-  
-//   // Read sensors
+
+//   // --- Read sensors ---
 //   float L = readMM(SID_LEFT,  CH_LEFT);
 //   float F = readMM(SID_FRONT, CH_FRONT);
 //   float R = readMM(SID_RIGHT, CH_RIGHT);
   
 //   Serial.printf("[SCAN] Sensor readings: L=%.1fmm F=%.1fmm R=%.1fmm\n", L, F, R);
-  
-//   // Determine wall directions relative to robot's current heading
-//   int leftDir = (robotHeading + 3) % 4;   // Turn left
-//   int frontDir = robotHeading;            // Straight
-//   int rightDir = (robotHeading + 1) % 4;  // Turn right
-  
-//   // Convert directions to wall bits
+
+//   // Directions relative to heading
+//   int leftDir  = (robotHeading + 3) % 4;
+//   int frontDir = robotHeading;
+//   int rightDir = (robotHeading + 1) % 4;
+
 //   uint8_t wallBits[] = {WALL_NORTH, WALL_EAST, WALL_SOUTH, WALL_WEST};
-  
-//   // Check and record walls
-// if (isWall(L, R)) {
-//   addWall(robotX, robotY, wallBits[leftDir]);
-//   Serial.printf("[SCAN] Wall detected on LEFT (%s)\n", dirNames[leftDir]);
-// }
 
-// if (isWall(F, -1)) {   // front has no “opposite”
-//   addWall(robotX, robotY, wallBits[frontDir]);
-//   Serial.printf("[SCAN] Wall detected on FRONT (%s)\n", dirNames[frontDir]);
-// }
+//   // --- Special case: ignore false front wall at (0,0) facing North ---
+//   bool ignoreFront = (robotX == 0 && robotY == 0 && robotHeading == 0);
 
-// if (isWall(R, L)) {
-//   addWall(robotX, robotY, wallBits[rightDir]);
-//   Serial.printf("[SCAN] Wall detected on RIGHT (%s)\n", dirNames[rightDir]);
-// }
+//   // LEFT wall check
+//   if (isWall(L, R)) {
+//     addWall(robotX, robotY, wallBits[leftDir]);
+//     Serial.printf("[SCAN] Wall detected on LEFT (%s)\n", dirNames[leftDir]);
+//   }
 
+//   // FRONT wall check (unless we’re ignoring at start)
+//   if (!ignoreFront && isWall(F, -1)) {
+//     addWall(robotX, robotY, wallBits[frontDir]);
+//     Serial.printf("[SCAN] Wall detected on FRONT (%s)\n", dirNames[frontDir]);
+//   } else if (ignoreFront) {
+//     Serial.println("[SCAN] Ignoring front wall at start cell (0,0) facing North");
+//   }
+
+//   // RIGHT wall check
+//   if (isWall(R, L)) {
+//     addWall(robotX, robotY, wallBits[rightDir]);
+//     Serial.printf("[SCAN] Wall detected on RIGHT (%s)\n", dirNames[rightDir]);
+//   }
 // }
 
 // // Update robot position after moving forward
@@ -489,25 +558,30 @@
 //   Serial.printf("[PATH] %s\n", fullPath.c_str());
   
 //   // Check if target reached
-// if (!targetReached && isTarget(robotX, robotY)) {
-//   targetReached = true;
-//   Serial.println("*** TARGET REACHED! STARTING BACKTRACK ***");
-//   buzzStart(2000, 500);
-//   motorsStop();
-
-//   delay(1000);  // small pause
-//   backtrackToStart();   // ✅ go back to (0,0)
-// }
-
-
+//   if (!targetReached && isTarget(robotX, robotY)) {
+//     targetReached = true;
+//     Serial.println("*** TARGET REACHED! ***");
+    
+//     if (currentState == EXPLORING) {
+//       Serial.println("*** STARTING BACKTRACK ***");
+//       buzzStart(2000, 500);
+//       motorsStop();
+//       delay(1000);  // small pause
+//       backtrackToStart();   // ✅ go back to (0,0)
+//     } else if (currentState == SPEED_RUN) {
+//       Serial.println("*** SPEED RUN COMPLETED! ***");
+//       buzzStart(2500, 800);  // Different victory sound for speed run
+//       motorsStop();
+      
+//       // Reset for potential new exploration
+//       waitingForButton = true;
+//       Serial.println("*** PRESS BUTTON TO START NEW EXPLORATION ***");
+//     }
+//   }
   
-//   // Check if back at start
+//   // Check if back at start after returning
 //   if (currentState == RETURNING && robotX == 0 && robotY == 0 && targetReached) {
-//     currentState = SPEED_RUN;
-//     Serial.println("[STATE] Ready for SPEED RUN!");
-//     buzzStart(1000, 200);
-//     delay(300);
-//     buzzStart(1000, 200);
+//     prepareForSpeedRun();  // ✅ New function handles the 180° turn and prep
 //   }
 // }
 
@@ -530,9 +604,11 @@
 //   Serial.println("\n========== CURRENT MAZE MAP ==========");
 //   Serial.printf("Robot at (%d,%d) facing %s | Steps: %d\n", 
 //                 robotX, robotY, dirNames[robotHeading], stepCount);
-//   Serial.printf("Algorithm: FLOOD FILL | State: %s\n",
-//                 (currentState == EXPLORING) ? "EXPLORING" : 
-//                 (currentState == RETURNING) ? "RETURNING" : "SPEED_RUN");
+  
+//   // Show current state
+//   const char* stateNames[] = {"EXPLORING", "RETURNING", "SPEED_RUN"};
+//   Serial.printf("Algorithm: FLOOD FILL | State: %s\n", stateNames[currentState]);
+  
 //   Serial.println("Legend: R=Robot, *=Visited, .=Unknown, T=Target");
   
 //   // Print top border
@@ -588,6 +664,58 @@
 //     }
 //   }
 //   Serial.println("=====================================\n");
+// }
+
+// void resetForNewRun() {
+//   if (currentState == SPEED_RUN) {
+//     Serial.println("\n*** STARTING SPEED RUN TO CENTER ***");
+    
+//     // Don't reset robot position - we're already at (0,0) facing North
+//     stepCount = 0;
+//     fullPath = "";
+    
+//     // Keep the maze map but reset algorithm state
+//     targetReached = false;
+//     waitingForButton = false;
+//     buttonPressed = false;
+    
+//     // Stay in SPEED_RUN state - flood fill will target center
+    
+//     Serial.println("*** SPEED RUN READY - USING EXISTING MAZE MAP ***");
+    
+//   } else {
+//     Serial.println("\n*** STARTING NEW EXPLORATION ***");
+    
+//     // Reset robot position for new exploration
+//     robotX = 0;
+//     robotY = 0;
+//     robotHeading = 0;
+//     stepCount = 0;
+    
+//     // Reset algorithm state
+//     currentState = EXPLORING;
+//     targetReached = false;
+//     waitingForButton = false;
+//     buttonPressed = false;
+    
+//     // Clear the path
+//     fullPath = "";
+    
+//     // Reset maze (clear everything for new exploration)
+//     initMaze();
+    
+//     // Initial scan at start position
+//     delay(500);
+//     scanWalls();
+//     printMaze();
+//   }
+  
+//   // Confirmation beeps
+//   buzzOK();
+//   delay(200);
+//   buzzOK();
+  
+//   Serial.println("*** READY TO GO ***\n");
 // }
 
 // // ======================================================
@@ -809,52 +937,81 @@
 
 
 // // +angleDeg = left/CCW; -angleDeg = right/CW
+// // Temporary debug version of turnIMU - replace your turnIMU function with this:
 // void turnIMU(float angleDeg, int basePWM=90, int timeout_ms=1800) {
-//   if (angleDeg == 0) return;
+//   Serial.printf("[TURN DEBUG] Starting turn: %.1f degrees, PWM: %d\n", angleDeg, basePWM);
+  
+//   if (angleDeg == 0) {
+//     Serial.println("[TURN DEBUG] Zero degree turn requested - skipping");
+//     return;
+//   }
 
-//   const float slowBandDeg = 25.0f;   // start tapering speed inside this band
-//   const float finishBand  = 3.0f;    // consider done when remaining < this
-//   const float minSpinGz   = 8.0f;    // deg/s; if below for too long, bump PWM
-//   const int   minPWM      = 60;
+//   // Test gyro reading first
+//   mpu.gyroUpdate();
+//   float testGz = (mpu.gyroZ() - gyroBiasZ) * IMU_Z_SIGN;
+//   Serial.printf("[TURN DEBUG] Initial gyro reading: %.2f deg/s\n", testGz);
+
+//   const float slowBandDeg = 25.0f;   
+//   const float finishBand  = 8.0f;    // Increased tolerance
+//   const float minSpinGz   = 8.0f;    
+//   const int   minPWM      = 70;      // Increased minimum PWM
 //   const int   maxPWM      = 140;
 
-//   int dir = (angleDeg > 0) ? +1 : -1;         // +1=CCW, -1=CW
+//   int dir = (angleDeg > 0) ? +1 : -1;         
 //   float target = fabsf(angleDeg);
+//   Serial.printf("[TURN DEBUG] Direction: %d, Target: %.1f\n", dir, target);
 
-//   float yaw_prog = 0.0f;                      // progress in commanded sense
+//   float yaw_prog = 0.0f;                      
 //   unsigned long last = millis();
 //   unsigned long t0   = last;
 //   unsigned long lowSpinSince = last;
+//   unsigned long lastDebug = last;
 
 //   while (true) {
 //     if ((int)(millis() - t0) > timeout_ms) {
-//       Serial.println("[TURN] Timeout!");
+//       Serial.printf("[TURN DEBUG] TIMEOUT after %d ms! Progress: %.1f/%.1f\n", 
+//                     timeout_ms, yaw_prog, target);
 //       break;
 //     }
 
 //     mpu.gyroUpdate();
 //     float gz = (mpu.gyroZ() - gyroBiasZ) * IMU_Z_SIGN;
 //     unsigned long now = millis();
-//     float dt = (now - last) / 1000.0f; if (dt <= 0) dt = 0.001f;
+//     float dt = (now - last) / 1000.0f; 
+//     if (dt <= 0) dt = 0.001f;
 //     last = now;
 
 //     // accumulate progress in the *commanded* direction
-//     yaw_prog += (dir * gz) * dt;                // positive when moving toward target
+//     yaw_prog += (dir * gz) * dt;                
 //     float remaining = target - yaw_prog;
 
-//     // finish condition (close enough and not spinning fast)
-//     if (remaining <= finishBand && fabsf(gz) < 25.0f) break;
-//     if (remaining <= 0) break;
+//     // Debug output every 200ms
+//     if (now - lastDebug > 200) {
+//       Serial.printf("[TURN DEBUG] gz=%.1f, progress=%.1f/%.1f, remaining=%.1f\n", 
+//                     gz, yaw_prog, target, remaining);
+//       lastDebug = now;
+//     }
+
+//     // finish condition
+//     if (remaining <= finishBand && fabsf(gz) < 25.0f) {
+//       Serial.println("[TURN DEBUG] Turn completed - within tolerance");
+//       break;
+//     }
+//     if (remaining <= 0) {
+//       Serial.println("[TURN DEBUG] Turn completed - target reached");
+//       break;
+//     }
 
 //     // adaptive speed profile
-//     float scale = (remaining < slowBandDeg) ? fmaxf(remaining/slowBandDeg, 0.22f) : 1.0f;
+//     float scale = (remaining < slowBandDeg) ? fmaxf(remaining/slowBandDeg, 0.3f) : 1.0f;
 //     int pwm = (int)fmaxf(fminf(basePWM * scale, (float)maxPWM), (float)minPWM);
 
-//     // help if we’re barely rotating (stiction / floor friction)
+//     // help if we're barely rotating
 //     if (fabsf(gz) < minSpinGz) {
-//       if ((int)(now - lowSpinSince) > 120) {
-//         pwm = fmin(pwm + 15, maxPWM);
+//       if ((int)(now - lowSpinSince) > 150) {
+//         pwm = fmin(pwm + 20, maxPWM);
 //         lowSpinSince = now;
+//         Serial.printf("[TURN DEBUG] Low spin detected, boosting PWM to %d\n", pwm);
 //       }
 //     } else {
 //       lowSpinSince = now;
@@ -863,24 +1020,22 @@
 //     motorL((dir > 0) ? -pwm : +pwm);
 //     motorR((dir > 0) ? +pwm : -pwm);
 
-//     // OPTIONAL: debug every ~50ms
-//     // static unsigned long dbg=0; if(now-dbg>50){ dbg=now;
-//     //   Serial.printf("[TURN] gz=%.1f yaw=%.1f rem=%.1f pwm=%d\n", gz, yaw_prog, remaining, pwm);
-//     // }
-
 //     buzzUpdate();
-//     delay(2);
+//     delay(5); // Slightly longer delay
 //   }
 
 //   motorsStop();
+//   Serial.printf("[TURN DEBUG] Final progress: %.1f degrees\n", yaw_prog);
 
 //   // micro-brake to kill residual momentum
-//   int bp = 40;
+//   int bp = 50; // Increased brake power
 //   motorL((dir > 0) ? +bp : -bp);
 //   motorR((dir > 0) ? -bp : +bp);
-//   delay(30);
+//   delay(40);
 //   motorsStop();
-//   delay(60);
+//   delay(100);
+  
+//   Serial.println("[TURN DEBUG] Turn sequence complete");
 // }
 
 
@@ -1087,12 +1242,10 @@
 // void backtrackToStart() {
 //   Serial.println("[BACKTRACK] Returning to start via recorded path...");
 
-//   // reverse iterate through the path string
-//   for (int i = fullPath.length() - 2; i >= 0; i -= 2) { // -2 skips trailing space
+//   for (int i = fullPath.length() - 2; i >= 0; i -= 2) {
 //     char step = fullPath[i];
 //     char backStep;
 
-//     // compute opposite move
 //     if (step == 'N') backStep = 'S';
 //     else if (step == 'S') backStep = 'N';
 //     else if (step == 'E') backStep = 'W';
@@ -1101,18 +1254,21 @@
 
 //     Serial.printf("[BACKTRACK] Step %c -> %c\n", step, backStep);
 
-//     // turn robot to face backStep
-//     int dir;
-//     if (backStep == 'N') dir = 0;
-//     if (backStep == 'E') dir = 1;
-//     if (backStep == 'S') dir = 2;
-//     if (backStep == 'W') dir = 3;
+// int dir = -1;  // Initialize to invalid
+// if (backStep == 'N') dir = 0;
+// else if (backStep == 'E') dir = 1;
+// else if (backStep == 'S') dir = 2;
+// else if (backStep == 'W') dir = 3;
+
+// if (dir == -1) {
+//   Serial.printf("[BACKTRACK] Invalid step: %c, skipping\n", backStep);
+//   continue;
+// }
 
 //     int turnDeg = calculateTurn(dir);
 //     if (turnDeg != 0) turnIMU(turnDeg, 80, 1800);
 //     updateHeading(turnDeg);
 
-//     // move one cell back
 //     if (driveOneCell()) {
 //       updatePosition();
 //       buzzOK();
@@ -1123,8 +1279,79 @@
 //   }
 
 //   Serial.println("[BACKTRACK] Arrived back at (0,0)!");
+
+// Serial.println("[BACKTRACK] Arrived back at (0,0)!");
+// motorsStop();
+
+// // Prepare for speed run immediately
+// prepareForSpeedRun();
 // }
 
+
+// void prepareForSpeedRun() {
+//   Serial.println("\n*** PREPARING FOR SPEED RUN ***");
+  
+//   // Stop the robot
+//   motorsStop();
+//   delay(500); // Give time to fully stop
+  
+//   // Turn 180 degrees to face North (ready for speed run)
+//   Serial.println("[PREP] Turning 180° to face North for speed run");
+  
+//   // FIXED: Actually perform the turn with better parameters
+//   turnIMU(180, 90, 3000); // Increased timeout to 3 seconds
+//   updateHeading(180);
+  
+//   // Wait a moment after turn
+//   delay(500);
+  
+//   // Square up after the turn
+//   squareUp();
+  
+//   // Clear only necessary states, keep the maze map!
+//   stepCount = 0;
+//   fullPath = "";  // Clear the path since we'll use flood fill for speed run
+  
+//   // Set state for speed run  
+//   currentState = SPEED_RUN;
+//   targetReached = false;  // Reset target flag for speed run
+//   waitingForButton = true;
+//   buttonPressed = false;  // IMPORTANT: Reset this flag
+  
+//   Serial.println("*** READY FOR SPEED RUN! PRESS BUTTON OR TYPE 'Y' TO START ***");
+  
+//   // Victory beeps to indicate ready
+//   buzzStart(1500, 150);
+//   delay(200);
+//   buzzStart(1800, 150);
+//   delay(200); 
+//   buzzStart(2000, 200);
+// }
+
+// // Add this function after your other helper functions
+// String getOptimalPath() {
+//   // The path recorded during exploration: "N N N E E"
+//   // This is the optimal path from (0,0) to target (2,3)
+//   return "N N N E E"; // You can extract this from fullPath or hardcode the optimal path
+// }
+
+// int getNextDirectionFromPath(int stepIndex) {
+//   String optimalPath = "NNNEE"; // Compact version of the path
+  
+//   if (stepIndex >= optimalPath.length()) {
+//     return -1; // No more steps
+//   }
+  
+//   char nextMove = optimalPath[stepIndex];
+  
+//   switch (nextMove) {
+//     case 'N': return 0; // North
+//     case 'E': return 1; // East  
+//     case 'S': return 2; // South
+//     case 'W': return 3; // West
+//     default: return -1;
+//   }
+// }
 
 // // ======================================================
 // // ====================  Setup  =========================
@@ -1140,6 +1367,9 @@
 //   pinMode(IN1_RIGHT, OUTPUT);
 //   pinMode(IN2_RIGHT, OUTPUT);
 //   pinMode(BUZZER_PIN, OUTPUT);
+
+
+//   pinMode(BUTTON_PIN, INPUT_PULLUP);  // Use internal pullup since you have 10k external
 
 //   // Immediately stop motors and give a short settle time
 //   motorsStop();
@@ -1208,13 +1438,123 @@
 
 // void loop() {
 //   buzzUpdate();
-//   static bool busy = false;
+//   checkButton();  // Check for button press
+  
+//   // Handle button press for new run
+//   if (waitingForButton) {
+//     if (buttonPressed) {
+//       Serial.println("[BUTTON] Button/Serial input detected, starting new run!");
+//       buttonPressed = false;      
+//       waitingForButton = false;   
+//       resetForNewRun();           
+//       delay(100); // Small delay before continuing
+//       busy = false; // Make sure to reset busy flag
+//       return;
+//     }
+
+//     static unsigned long lastWaitBeep = 0;
+//     if (millis() - lastWaitBeep > 3000) { // Reduced beep frequency
+//       Serial.printf("*** Waiting for button press or 'Y' key to start speed run... (State: %d) ***\n", currentState);
+//       buzzAttention();
+//       lastWaitBeep = millis();
+//     }
+//     busy = false; // IMPORTANT: Reset busy flag when waiting
+//     return;
+//   }
+
 //   if (busy) return;
 //   busy = true;
 
-//   Serial.println("\n[FLOOD FILL] Starting new step...");
+//   Serial.println("\n[MAIN] Starting new step...");
 //   Serial.printf("[DEBUG] At (%d,%d) facing %s\n", robotX, robotY, dirNames[robotHeading]);
 
+//   // --- SPEED RUN: Use recorded optimal path ---
+//   if (currentState == SPEED_RUN) {
+//     Serial.println("[SPEED RUN] Using recorded optimal path...");
+    
+//     // Optimal path discovered during exploration: N N N E E
+//     String optimalPath = "NNNEE";
+    
+//     if (stepCount >= optimalPath.length()) {
+//       Serial.println("[SPEED RUN] ✅ PATH COMPLETED! Target reached via optimal route!");
+//       motorsStop();
+      
+//       // Victory celebration
+//       buzzStart(2500, 800);
+//       delay(1000);
+//       buzzStart(3000, 500);
+      
+//       // Reset for potential new exploration
+//       waitingForButton = true;
+//       Serial.println("*** PRESS BUTTON OR 'Y' TO START NEW EXPLORATION ***");
+//       busy = false;
+//       return;
+//     }
+    
+//     // Get next direction from optimal path
+//     char nextMove = optimalPath[stepCount];
+//     int nextDirection = -1;
+    
+//     switch (nextMove) {
+//       case 'N': nextDirection = 0; break; // North
+//       case 'E': nextDirection = 1; break; // East  
+//       case 'S': nextDirection = 2; break; // South
+//       case 'W': nextDirection = 3; break; // West
+//       default: 
+//         Serial.println("[SPEED RUN ERROR] Invalid path character!");
+//         busy = false;
+//         return;
+//     }
+    
+//     Serial.printf("[SPEED RUN] Step %d: Following path to %s\n", 
+//                   stepCount + 1, dirNames[nextDirection]);
+    
+//     // Calculate required turn
+//     int turnDegrees = calculateTurn(nextDirection);
+//     Serial.printf("[SPEED RUN] Need to go %s, currently facing %s -> Turn: %d°\n",
+//                   dirNames[nextDirection], dirNames[robotHeading], turnDegrees);
+
+//     // Execute turn if needed
+//     if (turnDegrees == 90) {
+//       Serial.println("[TURN] Executing LEFT turn (90°)");
+//       turnIMU(+90, 85, 1600); // Slightly higher PWM for speed run
+//       squareUp();
+//       updateHeading(+90);
+//     } else if (turnDegrees == -90) {
+//       Serial.println("[TURN] Executing RIGHT turn (-90°)");
+//       turnIMU(-90, 85, 1600);
+//       squareUp();
+//       updateHeading(-90);
+//     } else if (turnDegrees == 180) {
+//       Serial.println("[TURN] Executing U-turn (180°)");
+//       turnIMU(180, 90, 1800);
+//       squareUp();
+//       updateHeading(180);
+//     } else {
+//       Serial.println("[TURN] No turn needed, going straight");
+//     }
+
+//     // Move forward one cell
+//     Serial.println("[SPEED RUN] Moving forward one cell...");
+//     if (driveOneCell()) {
+//       updatePosition(); // This will handle target detection
+//       buzzOK();
+//       Serial.println("[SPEED RUN] Forward movement successful");
+//     } else {
+//       Serial.println("[WARN] Speed run move failed.");
+//       buzzAttention();
+//     }
+
+//     // Print current state
+//     printMaze();
+//     delay(300); // Shorter delay for speed run
+//     busy = false;
+//     return;
+//   }
+
+//   // --- EXPLORATION & RETURNING: Use flood fill ---
+//   Serial.println("[EXPLORATION] Using flood fill algorithm...");
+  
 //   // --- Scan walls at current position (BEFORE TURN) ---
 //   Serial.println("[SCAN] Sensor readings BEFORE turn:");
 //   scanWalls();
@@ -1311,4 +1651,3 @@
 //   delay(1000);
 //   busy = false;
 // }
-
